@@ -33,6 +33,7 @@
 #include "memory/generation.hpp"
 #include "memory/sharedHeap.hpp"
 #include "memory/space.hpp"
+#include "runtime/dsu.hpp"
 
 inline OopsInGenClosure::OopsInGenClosure(Generation* gen) :
   ExtendedOopClosure(gen->ref_processor()), _orig_gen(gen), _rs(NULL) {
@@ -55,6 +56,7 @@ template <class T> inline void OopsInGenClosure::do_barrier(T* p) {
   T heap_oop = oopDesc::load_heap_oop(p);
   assert(!oopDesc::is_null(heap_oop), "expected non-null oop");
   oop obj = oopDesc::decode_heap_oop_not_null(heap_oop);
+  assert(!obj->mark()->is_mixed_object(), "no mixed object after copy");
   // If p points to a younger generation, mark the card.
   if ((HeapWord*)obj < _gen_boundary) {
     _rs->inline_write_ref_field_gc(p, obj);
@@ -66,6 +68,7 @@ template <class T> inline void OopsInGenClosure::par_do_barrier(T* p) {
   T heap_oop = oopDesc::load_heap_oop(p);
   assert(!oopDesc::is_null(heap_oop), "expected non-null oop");
   oop obj = oopDesc::decode_heap_oop_not_null(heap_oop);
+  assert(!obj->mark()->is_mixed_object(), "no mixed object after copy");
   // If p points to a younger generation, mark the card.
   if ((HeapWord*)obj < gen_boundary()) {
     rs()->write_ref_field_gc_par(p, obj);
@@ -86,8 +89,19 @@ template <class T> inline void ScanClosure::do_oop_work(T* p) {
     oop obj = oopDesc::decode_heap_oop_not_null(heap_oop);
     if ((HeapWord*)obj < _boundary) {
       assert(!_g->to()->is_in_reserved(obj), "Scanning field twice?");
-      oop new_obj = obj->is_forwarded() ? obj->forwardee()
+      oop new_obj;
+      if (obj->mark()->is_mixed_object()) {
+        oop phantom_object = oop(obj->mark()->decode_phantom_object_pointer());
+        if (phantom_object->is_forwarded()) {
+          new_obj = phantom_object->forwardee();
+        } else {
+          Javelus::merge_mixed_object(obj, phantom_object);
+          new_obj = _g->copy_to_survivor_space(phantom_object);
+        }
+      } else {
+        new_obj = obj->is_forwarded() ? obj->forwardee()
                                         : _g->copy_to_survivor_space(obj);
+      }
       oopDesc::encode_store_heap_oop_not_null(p, new_obj);
     }
 
@@ -112,8 +126,19 @@ template <class T> inline void FastScanClosure::do_oop_work(T* p) {
     oop obj = oopDesc::decode_heap_oop_not_null(heap_oop);
     if ((HeapWord*)obj < _boundary) {
       assert(!_g->to()->is_in_reserved(obj), "Scanning field twice?");
-      oop new_obj = obj->is_forwarded() ? obj->forwardee()
+      oop new_obj;
+      if (obj->mark()->is_mixed_object()) {
+        oop phantom_object = oop(obj->mark()->decode_phantom_object_pointer());
+        if (phantom_object->is_forwarded()) {
+          new_obj = phantom_object->forwardee();
+        } else {
+          Javelus::merge_mixed_object(obj, phantom_object);
+          new_obj = _g->copy_to_survivor_space(phantom_object);
+        }
+      } else {
+        new_obj = obj->is_forwarded() ? obj->forwardee()
                                         : _g->copy_to_survivor_space(obj);
+      }
       oopDesc::encode_store_heap_oop_not_null(p, new_obj);
       if (is_scanning_a_klass()) {
         do_klass_barrier();
@@ -136,8 +161,19 @@ template <class T> inline void ScanWeakRefClosure::do_oop_work(T* p) {
   // weak references are sometimes scanned twice; must check
   // that to-space doesn't already contain this object
   if ((HeapWord*)obj < _boundary && !_g->to()->is_in_reserved(obj)) {
-    oop new_obj = obj->is_forwarded() ? obj->forwardee()
-                                      : _g->copy_to_survivor_space(obj);
+    oop new_obj;
+    if (obj->mark()->is_mixed_object()) {
+      oop phantom_object = oop(obj->mark()->decode_phantom_object_pointer());
+      if (phantom_object->is_forwarded()) {
+        new_obj = phantom_object->forwardee();
+      } else {
+        Javelus::merge_mixed_object(obj, phantom_object);
+        new_obj = _g->copy_to_survivor_space(phantom_object);
+      }
+    } else {
+      new_obj = obj->is_forwarded() ? obj->forwardee()
+        : _g->copy_to_survivor_space(obj);
+    }
     oopDesc::encode_store_heap_oop_not_null(p, new_obj);
   }
 }

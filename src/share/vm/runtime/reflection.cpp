@@ -532,6 +532,9 @@ bool Reflection::verify_field_access(Klass* current_class,
   // class file parsing when we only care about the static type); in that case
   // callers should ensure that resolved_class == field_class.
   //
+  if (current_class != NULL && current_class->is_transformer_class()) {
+    return true;
+  }
   if ((current_class == NULL) ||
       (current_class == field_class) ||
       access.is_public()) {

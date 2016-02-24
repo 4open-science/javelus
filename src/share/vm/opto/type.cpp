@@ -353,6 +353,7 @@ void Type::Initialize_shared(Compile* current) {
   TypeTuple::LOOPBODY = TypeTuple::make( 2, floop );
 
   TypePtr::NULL_PTR= TypePtr::make( AnyPtr, TypePtr::Null, 0 );
+  TypePtr::VALID_PTR= TypePtr::make( AnyPtr, TypePtr::Valid, OffsetBot );
   TypePtr::NOTNULL = TypePtr::make( AnyPtr, TypePtr::NotNull, OffsetBot );
   TypePtr::BOTTOM  = TypePtr::make( AnyPtr, TypePtr::BotPTR, OffsetBot );
 
@@ -368,6 +369,7 @@ void Type::Initialize_shared(Compile* current) {
   TypeTuple::STORECONDITIONAL = TypeTuple::make(2, fsc);
 
   TypeInstPtr::NOTNULL = TypeInstPtr::make(TypePtr::NotNull, current->env()->Object_klass());
+  TypeInstPtr::VALID   = TypeInstPtr::make(TypePtr::Valid,   current->env()->Object_klass());
   TypeInstPtr::BOTTOM  = TypeInstPtr::make(TypePtr::BotPTR,  current->env()->Object_klass());
   TypeInstPtr::MIRROR  = TypeInstPtr::make(TypePtr::NotNull, current->env()->Class_klass());
   TypeInstPtr::MARK    = TypeInstPtr::make(TypePtr::BotPTR,  current->env()->Object_klass(),
@@ -1747,7 +1749,7 @@ const TypeTuple *TypeTuple::make_domain(ciInstanceKlass* recv, ciSignature* sig)
     total_fields++;
     field_array = fields(total_fields);
     // Use get_const_type here because it respects UseUniqueSubclasses:
-    field_array[pos++] = get_const_type(recv)->join_speculative(TypePtr::NOTNULL);
+    field_array[pos++] = get_const_type(recv)->join_speculative(TypePtr::VALID_PTR);
   } else {
     field_array = fields(total_fields);
   }
@@ -2165,19 +2167,22 @@ void TypeVect::dump2(Dict &d, uint depth, outputStream *st) const {
 //=============================================================================
 // Convenience common pre-built types.
 const TypePtr *TypePtr::NULL_PTR;
+const TypePtr *TypePtr::VALID_PTR;
 const TypePtr *TypePtr::NOTNULL;
 const TypePtr *TypePtr::BOTTOM;
 
 //------------------------------meet-------------------------------------------
 // Meet over the PTR enum
 const TypePtr::PTR TypePtr::ptr_meet[TypePtr::lastPTR][TypePtr::lastPTR] = {
-  //              TopPTR,    AnyNull,   Constant, Null,   NotNull, BotPTR,
-  { /* Top     */ TopPTR,    AnyNull,   Constant, Null,   NotNull, BotPTR,},
-  { /* AnyNull */ AnyNull,   AnyNull,   Constant, BotPTR, NotNull, BotPTR,},
-  { /* Constant*/ Constant,  Constant,  Constant, BotPTR, NotNull, BotPTR,},
-  { /* Null    */ Null,      BotPTR,    BotPTR,   Null,   BotPTR,  BotPTR,},
-  { /* NotNull */ NotNull,   NotNull,   NotNull,  BotPTR, NotNull, BotPTR,},
-  { /* BotPTR  */ BotPTR,    BotPTR,    BotPTR,   BotPTR, BotPTR,  BotPTR,}
+  //               TopPTR,    AnyNull,  AnyValid,  Constant, Null,   Valid,  NotNull, BotPTR,
+  { /* Top      */ TopPTR,    AnyNull,  AnyValid,  Constant, Null,   Valid,  NotNull, BotPTR,},
+  { /* AnyNull  */ AnyNull,   AnyNull,  AnyValid,  Constant, BotPTR, Valid,  NotNull, BotPTR,},
+  { /* AnyValid */ AnyValid,  AnyValid, AnyValid,  Constant, BotPTR, Valid,  NotNull, BotPTR,},
+  { /* Constant */ Constant,  Constant, Constant,  Constant, BotPTR, Valid,  NotNull, BotPTR,},
+  { /* Null     */ Null,      BotPTR,   BotPTR,    BotPTR,   Null,   BotPTR, BotPTR,  BotPTR,},
+  { /* Valid    */ Valid,     Valid,    Valid,     Valid,    BotPTR, Valid,  NotNull, BotPTR,},
+  { /* NotNull  */ NotNull,   NotNull,  NotNull,   NotNull,  BotPTR, NotNull,NotNull, BotPTR,},
+  { /* BotPTR   */ BotPTR,    BotPTR,   BotPTR,    BotPTR,   BotPTR, BotPTR, BotPTR,  BotPTR,}
 };
 
 //------------------------------make-------------------------------------------
@@ -2259,7 +2264,7 @@ int TypePtr::dual_offset( ) const {
 //------------------------------xdual------------------------------------------
 // Dual: compute field-by-field dual
 const TypePtr::PTR TypePtr::ptr_dual[TypePtr::lastPTR] = {
-  BotPTR, NotNull, Constant, Null, AnyNull, TopPTR
+  BotPTR, NotNull, Valid, Constant, Null, AnyValid, AnyNull, TopPTR
 };
 const Type *TypePtr::xdual() const {
   return new TypePtr( AnyPtr, dual_ptr(), dual_offset() );
@@ -2301,7 +2306,7 @@ int TypePtr::hash(void) const {
 
 //------------------------------dump2------------------------------------------
 const char *const TypePtr::ptr_msg[TypePtr::lastPTR] = {
-  "TopPTR","AnyNull","Constant","NULL","NotNull","BotPTR"
+  "TopPTR","AnyNull","AnyValid","Constant","NULL","Valid","NotNull","BotPTR"
 };
 
 #ifndef PRODUCT
@@ -2401,7 +2406,11 @@ const Type *TypeRawPtr::xmeet( const Type *t ) const {
   case TypePtr::Null:
     if( _ptr == TypePtr::TopPTR ) return t;
     return TypeRawPtr::BOTTOM;
+  case TypePtr::Valid:   return TypePtr::make( AnyPtr, meet_ptr(TypePtr::Valid), tp->meet_offset(0) );
   case TypePtr::NotNull: return TypePtr::make( AnyPtr, meet_ptr(TypePtr::NotNull), tp->meet_offset(0) );
+  case TypePtr::AnyValid:
+    if( _ptr == TypePtr::Constant) return this;
+    return make( meet_ptr(TypePtr::AnyValid) );
   case TypePtr::AnyNull:
     if( _ptr == TypePtr::Constant) return this;
     return make( meet_ptr(TypePtr::AnyNull) );
@@ -2648,12 +2657,14 @@ const Type *TypeOopPtr::xmeet_helper(const Type *t) const {
       if (ptr == Null)  return TypePtr::make(AnyPtr, ptr, offset);
       // else fall through:
     case TopPTR:
+    case AnyValid:
     case AnyNull: {
       int instance_id = meet_instance_id(InstanceTop);
       const TypeOopPtr* speculative = _speculative;
       return make(ptr, offset, instance_id, speculative, _inline_depth);
     }
     case BotPTR:
+    case Valid:
     case NotNull:
       return TypePtr::make(AnyPtr, ptr, offset);
     default: typerr(t);
@@ -3116,6 +3127,7 @@ int TypeOopPtr::meet_inline_depth(int depth) const {
 //=============================================================================
 // Convenience common pre-built types.
 const TypeInstPtr *TypeInstPtr::NOTNULL;
+const TypeInstPtr *TypeInstPtr::VALID;
 const TypeInstPtr *TypeInstPtr::BOTTOM;
 const TypeInstPtr *TypeInstPtr::MIRROR;
 const TypeInstPtr *TypeInstPtr::MARK;
@@ -3241,7 +3253,7 @@ const TypeInstPtr *TypeInstPtr::xmeet_unloaded(const TypeInstPtr *tinst) const {
       assert(loaded->ptr() != TypePtr::Null, "insanity check");
       //
       if(      loaded->ptr() == TypePtr::TopPTR ) { return unloaded; }
-      else if (loaded->ptr() == TypePtr::AnyNull) { return TypeInstPtr::make(ptr, unloaded->klass(), false, NULL, off, instance_id, speculative, depth); }
+      else if (loaded->ptr() == TypePtr::AnyNull || loaded->ptr() == TypePtr::AnyValid) { return TypeInstPtr::make(ptr, unloaded->klass(), false, NULL, off, instance_id, speculative, depth); }
       else if (loaded->ptr() == TypePtr::BotPTR ) { return TypeInstPtr::BOTTOM; }
       else if (loaded->ptr() == TypePtr::Constant || loaded->ptr() == TypePtr::NotNull) {
         if (unloaded->ptr() == TypePtr::BotPTR  ) { return TypeInstPtr::BOTTOM;  }
@@ -3301,6 +3313,7 @@ const Type *TypeInstPtr::xmeet_helper(const Type *t) const {
     int depth = meet_inline_depth(tp->inline_depth());
     switch (ptr) {
     case TopPTR:
+    case AnyValid:
     case AnyNull:                // Fall 'down' to dual of object klass
       // For instances when a subclass meets a superclass we fall
       // below the centerline when the superclass is exact. We need to
@@ -3315,6 +3328,7 @@ const Type *TypeInstPtr::xmeet_helper(const Type *t) const {
       }
     case Constant:
     case NotNull:
+    case Valid:
     case BotPTR:                // Fall down to object klass
       // LCA is object_klass, but if we subclass from the top we can do better
       if( above_centerline(_ptr) ) { // if( _ptr == TopPTR || _ptr == AnyNull )
@@ -3346,6 +3360,7 @@ const Type *TypeInstPtr::xmeet_helper(const Type *t) const {
     PTR ptr = meet_ptr(tp->ptr());
     switch (tp->ptr()) {
     case TopPTR:
+    case AnyValid:
     case AnyNull: {
       int instance_id = meet_instance_id(InstanceTop);
       const TypeOopPtr* speculative = xmeet_speculative(tp);
@@ -3353,6 +3368,7 @@ const Type *TypeInstPtr::xmeet_helper(const Type *t) const {
       return make(ptr, klass(), klass_is_exact(),
                   (ptr == Constant ? const_oop() : NULL), offset, instance_id, speculative, depth);
     }
+    case Valid:
     case NotNull:
     case BotPTR: {
       int instance_id = meet_instance_id(tp->instance_id());
@@ -3374,12 +3390,14 @@ const Type *TypeInstPtr::xmeet_helper(const Type *t) const {
       if( ptr == Null ) return TypePtr::make(AnyPtr, ptr, offset);
       // else fall through to AnyNull
     case TopPTR:
+    case AnyValid:
     case AnyNull: {
       int instance_id = meet_instance_id(InstanceTop);
       const TypeOopPtr* speculative = _speculative;
       return make(ptr, klass(), klass_is_exact(),
                   (ptr == Constant ? const_oop() : NULL), offset, instance_id, speculative, _inline_depth);
     }
+    case Valid:
     case NotNull:
     case BotPTR:
       return TypePtr::make(AnyPtr, ptr, offset);
@@ -3563,7 +3581,7 @@ const Type *TypeInstPtr::xmeet_helper(const Type *t) const {
 
     // Since klasses are different, we require a LCA in the Java
     // class hierarchy - which means we have to fall to at least NotNull.
-    if( ptr == TopPTR || ptr == AnyNull || ptr == Constant )
+    if( ptr == TopPTR || ptr == AnyNull || ptr == Constant || ptr == AnyValid)
       ptr = NotNull;
     instance_id = InstanceBot;
 
@@ -3872,6 +3890,7 @@ const Type *TypeAryPtr::xmeet_helper(const Type *t) const {
     int depth = meet_inline_depth(tp->inline_depth());
     switch (tp->ptr()) {
     case TopPTR:
+    case AnyValid:
     case AnyNull: {
       int instance_id = meet_instance_id(InstanceTop);
       const TypeOopPtr* speculative = xmeet_speculative(tp);
@@ -3879,6 +3898,7 @@ const Type *TypeAryPtr::xmeet_helper(const Type *t) const {
                   _ary, _klass, _klass_is_exact, offset, instance_id, speculative, depth);
     }
     case BotPTR:
+    case Valid:
     case NotNull: {
       int instance_id = meet_instance_id(tp->instance_id());
       const TypeOopPtr* speculative = xmeet_speculative(tp);
@@ -3897,11 +3917,13 @@ const Type *TypeAryPtr::xmeet_helper(const Type *t) const {
     case TopPTR:
       return this;
     case BotPTR:
+    case Valid:
     case NotNull:
       return TypePtr::make(AnyPtr, ptr, offset);
     case Null:
       if( ptr == Null ) return TypePtr::make(AnyPtr, ptr, offset);
       // else fall through to AnyNull
+    case AnyValid:
     case AnyNull: {
       int instance_id = meet_instance_id(InstanceTop);
       const TypeOopPtr* speculative = _speculative;
@@ -3958,6 +3980,7 @@ const Type *TypeAryPtr::xmeet_helper(const Type *t) const {
 
     bool xk = false;
     switch (tap->ptr()) {
+    case AnyValid:
     case AnyNull:
     case TopPTR:
       // Compute new klass on demand, do not use tap->_klass
@@ -3987,6 +4010,7 @@ const Type *TypeAryPtr::xmeet_helper(const Type *t) const {
       }
       return TypeAryPtr::make(ptr, o, tary, lazy_klass, xk, off, instance_id, speculative, depth);
     }
+    case Valid:
     case NotNull:
     case BotPTR:
       // Compute new klass on demand, do not use tap->_klass
@@ -4009,6 +4033,7 @@ const Type *TypeAryPtr::xmeet_helper(const Type *t) const {
     int depth = meet_inline_depth(tp->inline_depth());
     switch (ptr) {
     case TopPTR:
+    case AnyValid:
     case AnyNull:                // Fall 'down' to dual of object klass
       // For instances when a subclass meets a superclass we fall
       // below the centerline when the superclass is exact. We need to
@@ -4022,6 +4047,7 @@ const Type *TypeAryPtr::xmeet_helper(const Type *t) const {
         return TypeInstPtr::make(ptr, ciEnv::current()->Object_klass(), false, NULL,offset, instance_id, speculative, depth);
       }
     case Constant:
+    case Valid:
     case NotNull:
     case BotPTR:                // Fall down to object klass
       // LCA is object_klass, but if we subclass from the top we can do better
@@ -4383,10 +4409,12 @@ const Type *TypeMetadataPtr::xmeet( const Type *t ) const {
       if (ptr == Null)  return TypePtr::make(AnyPtr, ptr, offset);
       // else fall through:
     case TopPTR:
+    case AnyValid:
     case AnyNull: {
       return make(ptr, _metadata, offset);
     }
     case BotPTR:
+    case Valid:
     case NotNull:
       return TypePtr::make(AnyPtr, ptr, offset);
     default: typerr(t);

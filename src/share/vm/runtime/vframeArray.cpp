@@ -169,6 +169,7 @@ void vframeArrayElement::unpack_on_stack(int caller_actual_parameters,
                                          frame* caller,
                                          bool is_top_frame,
                                          bool is_bottom_frame,
+                                         bool do_return_barrier,
                                          int exec_mode) {
   JavaThread* thread = (JavaThread*) Thread::current();
 
@@ -186,10 +187,18 @@ void vframeArrayElement::unpack_on_stack(int caller_actual_parameters,
   } else if (should_reexecute()) { //reexecute this bytecode
     assert(is_top_frame, "reexecute allowed only for the top frame");
     bcp = method()->bcp_from(bci());
-    pc  = Interpreter::deopt_reexecute_entry(method(), bcp);
+    if (do_return_barrier) {
+      pc  = Interpreter::deopt_reexecute_with_barrier_entry(method(), bcp);
+    } else {
+      pc  = Interpreter::deopt_reexecute_entry(method(), bcp);
+    }
   } else {
     bcp = method()->bcp_from(bci());
-    pc  = Interpreter::deopt_continue_after_entry(method(), bcp, callee_parameters, is_top_frame);
+    if (do_return_barrier) {
+      pc  = Interpreter::deopt_continue_after_with_barrier_entry(method(), bcp, callee_parameters, is_top_frame);
+    } else {
+      pc  = Interpreter::deopt_continue_after_entry(method(), bcp, callee_parameters, is_top_frame);
+    }
     use_next_mdp = true;
   }
   assert(Bytecodes::is_defined(*bcp), "must be a valid bytecode");
@@ -453,6 +462,7 @@ vframeArray* vframeArray::allocate(JavaThread* thread, int frame_size, GrowableA
                                                      sizeof(vframeArrayElement) * (chunk->length() - 1), // variable part
                                                      mtCompiler);
   result->_frames = chunk->length();
+  result->_do_return_barrier = thread->return_barrier_id() == self.id();
   result->_owner_thread = thread;
   result->_sender = sender;
   result->_caller = caller;
@@ -532,6 +542,7 @@ void vframeArray::unpack_to_stack(frame &unpack_frame, int exec_mode, int caller
 
   // Do the unpacking of interpreter frames; the frame at index 0 represents the top activation, so it has no callee
   // Unpack the frames from the oldest (frames() -1) to the youngest (0)
+  bool install_return_barrier = do_return_barrier();
   frame* caller_frame = &me;
   for (index = frames() - 1; index >= 0 ; index--) {
     vframeArrayElement* elem = element(index);  // caller
@@ -555,8 +566,10 @@ void vframeArray::unpack_to_stack(frame &unpack_frame, int exec_mode, int caller
                           caller_frame,
                           index == 0,
                           index == frames() - 1,
+                          install_return_barrier,
                           exec_mode);
     if (index == frames() - 1) {
+      install_return_barrier =  false;
       Deoptimization::unwind_callee_save_values(elem->iframe(), this);
     }
     caller_frame = elem->iframe();

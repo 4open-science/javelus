@@ -784,7 +784,7 @@ void DefNewGeneration::handle_promotion_failure(oop old) {
 oop DefNewGeneration::copy_to_survivor_space(oop old) {
   assert(is_in_reserved(old) && !old->is_forwarded(),
          "shouldn't be scavenging this oop");
-  size_t s = old->size();
+  size_t s = old->copy_to_size();
   oop obj = NULL;
 
   // Try allocating obj in to-space (unless too old)

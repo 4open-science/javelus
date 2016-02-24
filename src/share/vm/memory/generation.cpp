@@ -196,7 +196,7 @@ bool Generation::promotion_attempt_is_safe(size_t max_promotion_in_bytes) const 
 
 // Ignores "ref" and calls allocate().
 oop Generation::promote(oop obj, size_t obj_size) {
-  assert(obj_size == (size_t)obj->size(), "bad obj_size passed in");
+  assert(obj_size == (size_t)obj->size() || obj_size == (size_t)obj->copy_to_size(), "bad obj_size passed in");
 
 #ifndef PRODUCT
   if (Universe::heap()->promotion_should_fail()) {

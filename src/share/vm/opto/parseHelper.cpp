@@ -32,7 +32,9 @@
 #include "opto/parse.hpp"
 #include "opto/rootnode.hpp"
 #include "opto/runtime.hpp"
+#include "runtime/dsu.hpp"
 #include "runtime/sharedRuntime.hpp"
+
 
 //------------------------------make_dtrace_method_entry_exit ----------------
 // Dtrace -- record entry or exit of a method if compiled with dtrace support
@@ -92,6 +94,13 @@ void Parse::do_checkcast() {
     return;
   }
 
+  if(klass->is_instance_klass()){
+    ciInstanceKlass *cik = klass->as_instance_klass();
+    if(cik->is_super_type_of_stale_class()){
+      obj = do_stale_object_check(obj, false);
+    }
+  }
+
   Node *res = gen_checkcast(obj, makecon(TypeKlassPtr::make(klass)) );
 
   // Pop from stack AFTER gen_checkcast because it can uncommon trap and
@@ -127,8 +136,17 @@ void Parse::do_instanceof() {
     return;
   }
 
+  Node * obj = peek();
+
+  if(klass->is_instance_klass()){
+    ciInstanceKlass *cik = klass->as_instance_klass();
+    if(cik->is_super_type_of_stale_class()){
+      obj = do_stale_object_check(obj, false);
+    }
+  }
+
   // Push the bool result back on stack
-  Node* res = gen_instanceof(peek(), makecon(TypeKlassPtr::make(klass)), true);
+  Node* res = gen_instanceof(obj, makecon(TypeKlassPtr::make(klass)), true);
 
   // Pop from stack AFTER gen_instanceof because it can uncommon trap.
   pop();
@@ -620,3 +638,147 @@ void Parse::profile_switch_case(int table_index) {
     increment_md_counter_at(md, data, MultiBranchData::default_count_offset());
   }
 }
+
+//---------------------------------stale object check support--------------------------------
+Node* GraphKit::do_stale_object_check(Node* recv, bool check_mixed_object) {
+  const Type *t = _gvn.type(recv);
+
+  if(!t->isa_instptr()){
+    return recv;
+  }
+
+  //XXX t must be an TypeOopPtr, or TypeInstPtr infact
+  if (EliminateCheckPoint && t->higher_equal(TypePtr::VALID_PTR)) {
+    if (PrintCheckPointElimination) {
+      ResourceMark rm;
+      DSU_INFO(("Eliminate invalid check for method %s::%s%s at bci %d",
+        method()->holder()->name()->as_utf8(),
+        method()->name()->as_utf8(),
+        method()->signature()->as_symbol()->as_utf8(),
+        bci()));
+    }
+    // invalid is not a allowed in the original type
+    if (check_mixed_object) {
+      return do_mixed_object_check(recv);
+    }
+    return recv;
+  }
+
+  if (PrintCheckPoint) {
+    ResourceMark rm;
+    DSU_INFO(("Invalid check for method %s::%s%s at bci %d",
+      method()->holder()->name()->as_utf8(),
+      method()->name()->as_utf8(),
+      method()->signature()->as_symbol()->as_utf8(),
+      bci()));
+  }
+
+  // Below code are copied from  Parse::call_register_finalizer at parse1.cpp
+  Node* klass_addr = basic_plus_adr( recv, recv, oopDesc::klass_offset_in_bytes() );
+  Node* klass = make_load(NULL, klass_addr, TypeInstPtr::BOTTOM, T_OBJECT, MemNode::unordered);
+  Node* access_flags_addr = basic_plus_adr(klass, in_bytes(Klass::dsu_flags_offset()));
+  Node* access_flags = make_load(NULL, access_flags_addr, TypeInt::INT, T_INT, MemNode::unordered);
+
+//  //XXX JVM_ACC_IS_INVALID_MEMBER == JVM_ACC_INTERFACE_BIT == 9
+  //Node *invalid_value = _gvn.MakeConX(9);
+  Node *invalid_value = _gvn.MakeConX(DSU_FLAGS_CLASS_IS_STALE_CLASS);
+  Node *lmasked_flag  = _gvn.transform(new (C) AndXNode( access_flags, invalid_value));
+  Node *chk_invalid   = _gvn.transform(new (C) CmpXNode( lmasked_flag, invalid_value));
+  Node *test_invalid  = _gvn.transform(new (C) BoolNode( chk_invalid, BoolTest::ne) );
+
+  // not equal == true ==> not invalid ==> valid
+  IfNode* iff = create_and_map_if(control(), test_invalid, PROB_MIN, COUNT_UNKNOWN);
+
+  // invalid_false
+  RegionNode* result_rgn = new (C) RegionNode(3);
+
+  // not eq, a valid object
+  Node* if_valid = _gvn.transform(new (C) IfTrueNode(iff));
+  set_control(if_valid);
+  recv = cast_valid(_gvn.transform(recv), true);
+  result_rgn->init_req(1, if_valid);
+
+  Node* if_invalid = _gvn.transform(new (C) IfFalseNode(iff)); 
+  set_control(if_invalid);
+ 
+  kill_dead_locals();
+  Node * call = make_runtime_call(RC_NO_LEAF, 
+    OptoRuntime::update_stale_object_Type(),
+    OptoRuntime::update_stale_object_Java(),
+    "invalid object check",
+    TypePtr::BOTTOM,
+    recv);
+
+  make_slow_call_ex(call, env()->Throwable_klass(), true);
+
+  recv = cast_valid(_gvn.transform(new (C) ProjNode(call, TypeFunc::Parms)), true);
+
+  Node* fast_io  = call->in(TypeFunc::I_O);
+  Node* fast_mem = call->in(TypeFunc::Memory);
+  // These two phis are pre-filled with copies of of the fast IO and Memory
+  Node* io_phi   = PhiNode::make(result_rgn, fast_io,  Type::ABIO);
+  Node* mem_phi  = PhiNode::make(result_rgn, fast_mem, Type::MEMORY, TypePtr::BOTTOM);
+
+  result_rgn->init_req(2, control());
+  io_phi    ->init_req(2, i_o());
+  mem_phi   ->init_req(2, reset_memory());
+
+  set_all_memory( _gvn.transform(mem_phi) );
+  set_i_o(        _gvn.transform(io_phi) );
+
+  // at last set merge point
+  set_control( _gvn.transform(result_rgn) );
+  record_for_igvn(result_rgn);
+
+  if (check_mixed_object) {
+    return do_mixed_object_check(recv);
+  }
+
+  return recv;
+}
+
+Node* GraphKit::do_mixed_object_check(Node* obj) {
+  enum {
+    mixed_object_path = 1,
+    not_mixed_object_path = 2,
+  };
+
+  const Type* t = _gvn.type(obj);
+
+  Node* result_rgn = new (C) RegionNode(1+2); // fast slow;
+  Node* result_val = new (C) PhiNode(result_rgn, t); // fast slow;
+  
+  Node* header_addr = basic_plus_adr(obj, oopDesc::mark_offset_in_bytes());
+  Node* header      = make_load(control(), header_addr, TypeX_X, TypeX_X->basic_type(), MemNode::unordered);
+
+  Node *marked_mask        = _gvn.MakeConX(markOopDesc::mixed_object_value);
+  Node *mark_masked_header = _gvn.transform(new (C) AndXNode(header, marked_mask) );
+  Node *chk_unmarked       = _gvn.transform(new (C) CmpXNode(mark_masked_header, marked_mask));
+  Node *test_unmarked      = _gvn.transform(new (C) BoolNode(chk_unmarked, BoolTest::ne) );
+
+  IfNode *iff = create_and_map_if(control(), test_unmarked, PROB_MIN, COUNT_UNKNOWN);
+
+  Node* if_mix     = _gvn.transform(new (C) IfFalseNode(iff) );
+  Node* if_not_mix = _gvn.transform(new (C) IfTrueNode(iff)  );
+
+  //fast path,not_mixed_objects
+  result_rgn->init_req(not_mixed_object_path, if_not_mix);
+  result_val->init_req(not_mixed_object_path, obj);
+
+  set_control(if_mix);
+  
+  assert(!stopped(),"cannot be stopped!");
+
+  Node *clear_mark = _gvn.MakeConX(~markOopDesc::mixed_object_mask_in_place);
+  Node *mix_that = _gvn.transform(new (C) AndXNode(header, clear_mark));
+  Node *unsafe_p = _gvn.transform(new (C) CastX2PNode(mix_that));
+  Node *check_cast = _gvn.transform(new (C) CheckCastPPNode(control(), unsafe_p, t));
+
+  result_rgn->init_req(mixed_object_path, if_mix);
+  result_val->init_req(mixed_object_path, /*unsafe_p*/ check_cast);
+
+  set_control(_gvn.transform(result_rgn));
+  record_for_igvn(result_rgn);
+  return _gvn.transform( result_val);
+}
+

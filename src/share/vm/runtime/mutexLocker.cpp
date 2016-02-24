@@ -87,6 +87,10 @@ Mutex*   DerivedPointerTableGC_lock   = NULL;
 Mutex*   Compile_lock                 = NULL;
 Monitor* MethodCompileQueue_lock      = NULL;
 Monitor* CompileThread_lock           = NULL;
+Monitor* DSUThread_lock               = NULL;
+Monitor* DSURequest_lock              = NULL;
+Monitor* DSUEagerUpdate_lock          = NULL;
+Mutex*   DSUReflection_lock           = NULL;
 Mutex*   CompileTaskAlloc_lock        = NULL;
 Mutex*   CompileStatistics_lock       = NULL;
 Mutex*   MultiArray_lock              = NULL;
@@ -271,6 +275,10 @@ void mutex_init() {
   def(Management_lock              , Mutex  , nonleaf+2,   false); // used for JVM management
 
   def(Compile_lock                 , Mutex  , nonleaf+3,   true );
+  def(DSUThread_lock               , Monitor, nonleaf+5,   false);
+  def(DSURequest_lock              , Monitor, nonleaf+5,   true );
+  def(DSUEagerUpdate_lock          , Monitor, nonleaf+5,   false);
+  def(DSUReflection_lock           , Mutex  , nonleaf+5,   false); // locks weak reflection
   def(MethodData_lock              , Mutex  , nonleaf+3,   false);
 
   def(MethodCompileQueue_lock      , Monitor, nonleaf+4,   true );

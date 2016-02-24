@@ -100,6 +100,7 @@ class vframeArrayElement : public _ValueObj {
                        frame* caller,
                        bool is_top_frame,
                        bool is_bottom_frame,
+                       bool is_return_barrier,
                        int exec_mode);
 
 #ifdef ASSERT
@@ -149,6 +150,8 @@ class vframeArray: public CHeapObj<mtCompiler> {
 
   int                          _frames; // number of javavframes in the array (does not count any adapter)
 
+  bool                         _do_return_barrier;
+
   intptr_t                     _callee_registers[RegisterMap::reg_count];
   unsigned char                _valid[RegisterMap::reg_count];
 
@@ -184,6 +187,9 @@ class vframeArray: public CHeapObj<mtCompiler> {
   // Accessors for next
   vframeArray* next() const                  { return _next; }
   void set_next(vframeArray* value)          { _next = value; }
+
+  // DSU
+  bool do_return_barrier() const             { return _do_return_barrier; }
 
   // Accessors for sp
   intptr_t* sp() const                       { return _original.sp(); }

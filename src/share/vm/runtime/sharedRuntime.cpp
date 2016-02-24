@@ -44,6 +44,7 @@
 #include "prims/nativeLookup.hpp"
 #include "runtime/arguments.hpp"
 #include "runtime/biasedLocking.hpp"
+#include "runtime/dsu.hpp"
 #include "runtime/handles.inline.hpp"
 #include "runtime/init.hpp"
 #include "runtime/interfaceSupport.hpp"
@@ -533,6 +534,26 @@ address SharedRuntime::raw_exception_handler_for_return_address(JavaThread* thre
   ShouldNotReachHere();
   return NULL;
 }
+
+JRT_ENTRY(void, SharedRuntime::transform_object(JavaThread* thread, oopDesc* recv ))
+  HandleMark hm(THREAD);
+  Handle obj(THREAD, recv);
+
+  // call common function
+  Javelus::transform_object_common(obj, THREAD);
+
+  // exception handling here
+  if(HAS_PENDING_EXCEPTION){
+    // TODO XXX
+    Handle ex (THREAD, PENDING_EXCEPTION);
+    ex->print();
+    CLEAR_PENDING_EXCEPTION;
+  }
+#ifdef ASSERT
+  KlassHandle kh (THREAD, recv->klass());
+  assert(!kh->is_stale_class(),"should be updated");
+#endif
+JRT_END
 
 
 JRT_LEAF(address, SharedRuntime::exception_handler_for_return_address(JavaThread* thread, address return_address))
@@ -1083,6 +1104,17 @@ Handle SharedRuntime::find_callee_info_helper(JavaThread* thread,
 
     if (receiver.is_null()) {
       THROW_(vmSymbols::java_lang_NullPointerException(), nullHandle);
+    }
+
+    if (receiver->is_instance() && Javelus::transform_object_common(receiver(), THREAD)) {
+      instanceKlassHandle receiver_klass (receiver->klass());
+      if (receiver_klass->is_not_initialized()) {
+        receiver_klass->initialize(THREAD);
+        if (HAS_PENDING_EXCEPTION) {
+          ResourceMark rm(THREAD);
+          DSU_WARN(("Transform ok. Initialize class %s meet exceotion.", receiver_klass->name()->as_C_string()));
+        }
+      }
     }
   }
 

@@ -492,6 +492,13 @@ inline int oopDesc::size()  {
   return size_given_klass(klass());
 }
 
+inline int oopDesc::copy_to_size()  {
+  if (mark()->is_mixed_object()) {
+    return ((InstanceKlass*)klass())->copy_to_size();
+  }
+  return size_given_klass(klass());
+}
+
 inline void update_barrier_set(void* p, oop v, bool release = false) {
   assert(oopDesc::bs() != NULL, "Uninitialized bs in oop!");
   oopDesc::bs()->write_ref_field(p, v, release);

@@ -29,6 +29,7 @@
 #include "memory/allocation.hpp"
 #include "prims/jvm.h"
 #include "utilities/accessFlags.hpp"
+#include "runtime/dsuFlags.hpp"
 
 // ciFlags
 //
@@ -66,6 +67,30 @@ public:
 
   void print_klass_flags(outputStream* st = tty);
   void print_member_flags(outputStream* st = tty);
+  void print(outputStream* st = tty);
+};
+
+class ciDSUFlags VALUE_OBJ_CLASS_SPEC {
+private:
+  jint _flags;
+
+public:
+
+  ciDSUFlags() { _flags = 0; }
+  ciDSUFlags(DSUFlags flags) { _flags = flags.as_int(); }
+
+  bool needs_stale_object_check () const    { return (_flags & DSU_FLAGS_MEMBER_NEEDS_STALE_OBJECT_CHECK) != 0; }
+  bool needs_mixed_object_check () const    { return (_flags & DSU_FLAGS_MEMBER_NEEDS_MIXED_OBJECT_CHECK) != 0; }
+  bool needs_type_narrow_check  () const    { return (_flags & DSU_FLAGS_MEMBER_NEEDS_TYPE_NARROW_CHECK)  != 0; }
+  bool is_restricted_method     () const    { return (_flags & DSU_FLAGS_MEMBER_IS_RESTRICTED_METHOD)     != 0; }
+
+  bool is_stale_class                      ()  const { return (_flags & DSU_FLAGS_CLASS_IS_STALE_CLASS) !=0; }
+  bool is_type_narrowed_class              ()  const { return (_flags & DSU_FLAGS_CLASS_IS_TYPE_NARROWED_CLASS) !=0; }
+  bool is_super_type_of_stale_class        ()  const { return (_flags & DSU_FLAGS_CLASS_IS_SUPER_TYPE_OF_STALE_CLASS) !=0; }
+  bool is_type_narrowing_relevant_type     ()  const { return (_flags & DSU_FLAGS_CLASS_IS_TYPE_NARROWING_RELEVANT_TYPE) !=0; }
+  bool is_new_redefined_class              ()  const { return (_flags & DSU_FLAGS_CLASS_IS_NEW_REDEFINED_CLASS) !=0; }
+  bool is_inplace_new_class                ()  const { return (_flags & DSU_FLAGS_CLASS_IS_INPLACE_NEW_CLASS) !=0; }
+
   void print(outputStream* st = tty);
 };
 

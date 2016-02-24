@@ -3944,7 +3944,30 @@ class CommandLineFlags {
                                                                             \
   product_pd(bool, PreserveFramePointer,                                    \
              "Use the FP register for holding the frame pointer "           \
-             "and not as a general purpose register.")
+             "and not as a general purpose register.")                      \
+                                                                            \
+  /* Javelus */                                                             \
+  product(bool, ForceEagerUpdate, false,                                    \
+           "Perfomr eager update without updating pointers.")               \
+  product(bool, ForceEagerUpdatePointers, false,                            \
+           "Perfomr eager update with updating pointers.")                  \
+  product(bool, EliminateCheckPoint, true,                                  \
+           "Eliminate checkpoints in compiler")                             \
+  product(bool, PrintCheckPoint, false,                                     \
+           "Print checkpoints in compiler")                                 \
+  product(bool, PrintCheckPointElimination, false,                          \
+           "Print checkpoints that has been eliminated in compiler")        \
+  product(intx, PrintObjectTransformer, 1,                                  \
+           "Print information during object transformer")                   \
+  product(bool, PrintUpdateTime, true,                                      \
+           "Print the time of stop-the-word")                               \
+  /* we always care about the time in default */                            \
+  product(intx, TraceDSU, 1, "Trace level for DSU")                         \
+  product(bool, UseJavelusInJvmti, true, "Use javelus in jvmti" )           \
+  product(bool, IgnoreUnloadedOldClass, true, "ignore classes that"         \
+                                          "have not been loaded" )          \
+  product(bool, IgnoreAddedClass, false, "not define added "                \
+           "class eagerly" )
 
 /*
  *  Macros for factoring of globals

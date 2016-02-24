@@ -40,7 +40,17 @@ template <class T> inline void ParScanWeakRefClosure::do_oop_work(T* p) {
     Klass* objK = obj->klass();
     markOop m = obj->mark();
     oop new_obj;
-    if (m->is_marked()) { // Contains forwarding pointer.
+    if (m->is_mixed_object()) {
+      oop phantom_object = oop(m->decode_phantom_object_pointer());
+      if (phantom_object->mark()->is_marked()) {
+        new_obj = ParNewGeneration::real_forwardee(phantom_object);
+      } else {
+        size_t obj_sz = obj->size_given_klass(phantom_object->klass());
+        new_obj = ((ParNewGeneration*)_g)->copy_to_survivor_space(_par_scan_state,
+                                                                phantom_object, obj_sz,
+                                                                phantom_object->mark());
+      }
+    } else if (m->is_marked()) { // Contains forwarding pointer.
       new_obj = ParNewGeneration::real_forwardee(obj);
     } else {
       size_t obj_sz = obj->size_given_klass(objK);
@@ -103,6 +113,17 @@ inline void ParScanClosure::do_oop_work(T* p,
       Klass* objK = obj->klass();
       markOop m = obj->mark();
       oop new_obj;
+      if (m->is_mixed_object()) {
+        oop phantom_object = oop(m->decode_phantom_object_pointer());
+        if (phantom_object->mark()->is_mixed_object()) {
+          new_obj = ParNewGeneration::real_forwardee(phantom_object);
+          oopDesc::encode_store_heap_oop_not_null(p, new_obj);
+        } else {
+          size_t obj_sz = obj->size_given_klass(phantom_object->klass());
+          new_obj = _g->copy_to_survivor_space(_par_scan_state, phantom_object, obj_sz, phantom_object->mark());
+          oopDesc::encode_store_heap_oop_not_null(p, new_obj);
+        }
+      }
       if (m->is_marked()) { // Contains forwarding pointer.
         new_obj = ParNewGeneration::real_forwardee(obj);
         oopDesc::encode_store_heap_oop_not_null(p, new_obj);

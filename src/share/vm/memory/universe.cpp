@@ -58,6 +58,7 @@
 #include "prims/jvmtiRedefineClassesTrace.hpp"
 #include "runtime/arguments.hpp"
 #include "runtime/deoptimization.hpp"
+#include "runtime/dsu.hpp"
 #include "runtime/fprofiler.hpp"
 #include "runtime/handles.inline.hpp"
 #include "runtime/init.hpp"
@@ -298,6 +299,7 @@ void Universe::genesis(TRAPS) {
     vmSymbols::initialize(CHECK);
 
     SystemDictionary::initialize(CHECK);
+    Javelus::initialize(CHECK);
 
     Klass* ok = SystemDictionary::Object_klass();
 

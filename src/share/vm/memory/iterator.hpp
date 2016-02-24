@@ -57,6 +57,7 @@ class Closure : public StackObj {
 
 class OopClosure : public Closure {
  public:
+  virtual bool do_mixed_object() { return false; }
   virtual void do_oop(oop* o) = 0;
   virtual void do_oop_v(oop* o) { do_oop(o); }
   virtual void do_oop(narrowOop* o) = 0;

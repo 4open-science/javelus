@@ -53,6 +53,27 @@ Dictionary::Dictionary(int table_size, HashtableBucket<mtClass>* t,
   _pd_cache_table = new ProtectionDomainCacheTable(defaultProtectionDomainCacheSize);
 };
 
+// this is used by DSU
+// 1). return true if replaced
+// 2). return false if find nothing
+bool Dictionary::find_and_replace_klass(Symbol* class_name, ClassLoaderData* loader_data, KlassHandle klass) {
+  assert_locked_or_safepoint(SystemDictionary_lock);
+  assert(klass->name() == class_name, "sanity check on name");
+
+  unsigned int hash = compute_hash(class_name, loader_data);
+  int index = hash_to_index(hash);
+  DictionaryEntry* entry = get_entry(index, hash, class_name, loader_data);
+
+  if(entry == NULL){
+    entry = new_entry(hash, klass(), loader_data);
+    add_entry(index, entry);
+    return false;
+  }else {
+    entry->set_literal(klass());
+    return true;
+  }
+}
+
 ProtectionDomainCacheEntry* Dictionary::cache_get(oop protection_domain) {
   return _pd_cache_table->get(protection_domain);
 }

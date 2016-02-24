@@ -75,6 +75,8 @@ class CompileQueue;
 class CompilerCounters;
 class vframeArray;
 
+class DSUThread;
+
 class DeoptResourceMark;
 class jvmtiDeferredLocalVariableSet;
 
@@ -312,6 +314,7 @@ class Thread: public ThreadShadow {
   virtual bool is_VM_thread()       const            { return false; }
   virtual bool is_Java_thread()     const            { return false; }
   virtual bool is_Compiler_thread() const            { return false; }
+  virtual bool is_DSU_thread()      const            { return false; }
   virtual bool is_hidden_from_external_view() const  { return false; }
   virtual bool is_jvmti_agent_thread() const         { return false; }
   // True iff the thread can perform GC operations at a safepoint.
@@ -782,6 +785,20 @@ class JavaThread: public Thread {
   JavaThread*    _next;                          // The next thread in the Threads list
   oop            _threadObj;                     // The Java level thread object
 
+  // DSU Support
+public:
+  enum {
+    _no_return_barrier = 0,
+    _wakeup_dsu        = 1,
+    _update_thread     = 2,
+    _eager_update      = 3,
+  };
+
+private:
+  int        _current_revision;
+  intptr_t*  _return_barrier_id;
+  int        _return_barrier_type;
+
 #ifdef ASSERT
  private:
   int _java_call_counter;
@@ -1019,6 +1036,23 @@ class JavaThread: public Thread {
   // (or for threads attached via JNI)
   oop threadObj() const                          { return _threadObj; }
   void set_threadObj(oop p)                      { _threadObj = p; }
+
+  // DSU support
+  int  return_barrier_type() const               { return _return_barrier_type; }
+  void set_return_barrier_type(int type)         { _return_barrier_type = type; }
+  void clear_return_barrier_type()               { _return_barrier_type = _no_return_barrier; }
+  bool is_return_barrier_wake_up() const         { return _return_barrier_type == _wakeup_dsu; }
+  bool is_return_barrier_eager_update() const    { return _return_barrier_type == _eager_update; }
+  bool is_return_barrier_update_thread() const   { return _return_barrier_type == _update_thread; }
+
+  static ByteSize return_barrier_id_offset()     { return byte_offset_of(JavaThread, _return_barrier_id); }
+  intptr_t* return_barrier_id() const            { return _return_barrier_id;}
+  // here we set up the original frame pointer of the oldest restricted method
+  void set_return_barrier_id(intptr_t *fp)       { _return_barrier_id = fp;}
+  void clear_return_barrier_id()                 { _return_barrier_id = NULL;}
+
+  int current_revision() const                   { return _current_revision; }
+  int increment_revision()                       { return ++_current_revision; }
 
   ThreadPriority java_priority() const;          // Read from threadObj()
 
@@ -1539,6 +1573,8 @@ public:
   static JavaThread* active();
 
   inline CompilerThread* as_CompilerThread();
+  inline DSUThread*      as_DSUThread();
+
 
  public:
   virtual void run();
@@ -1791,6 +1827,12 @@ inline CompilerThread* JavaThread::as_CompilerThread() {
   return (CompilerThread*)this;
 }
 
+inline DSUThread* JavaThread::as_DSUThread() {
+  assert(is_DSU_thread(), "just checking");
+  return (DSUThread*)this;
+}
+
+
 inline bool JavaThread::stack_guard_zone_unused() {
   return _stack_guard_state == stack_guard_unused;
 }
@@ -1893,6 +1935,30 @@ inline CompilerThread* CompilerThread::current() {
   return JavaThread::current()->as_CompilerThread();
 }
 
+class DSUTask;
+
+class DSUThread : public JavaThread {
+friend class Javelus;
+friend class VMStructs;
+private:
+  DSUTask * _task_queue;
+  DSUTask * _task;
+  Monitor * _lock;
+  void sleep(long timeout);
+public:
+  static DSUThread* current();
+  DSUThread();
+  bool is_DSU_thread() const { return true; }
+  void add_task(DSUTask * task);
+  Monitor * lock() {return _lock; }
+  void wakeup();
+  DSUTask * next_task();
+  DSUTask * task() {return _task; }
+};
+
+inline DSUThread* DSUThread::current() {
+  return JavaThread::current()->as_DSUThread();
+}
 
 // The active thread queue. It also keeps track of the current used
 // thread priorities.

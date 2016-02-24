@@ -87,12 +87,23 @@ inline HeapWord* Space::block_start(const void* p) {
   while (q < t) {                                                            \
     assert(!block_is_obj(q) ||                                               \
            oop(q)->mark()->is_marked() || oop(q)->mark()->is_unlocked() ||   \
+           oop(q)->mark()->is_mixed_object() ||                              \
            oop(q)->mark()->has_bias_pattern(),                               \
            "these are the only valid states during a mark sweep");           \
     if (block_is_obj(q) && oop(q)->is_gc_marked()) {                         \
       /* prefetch beyond q */                                                \
       Prefetch::write(q, interval);                                          \
       size_t size = block_size(q);                                           \
+      if (oop(q)->mark()->is_mixed_object()) {                               \
+        if (liveRange) {                                                     \
+          liveRange->set_end(q);                                             \
+        }                                                                    \
+        if (q < first_dead) {                                                \
+          first_dead = q;                                                    \
+        }                                                                    \
+        q += size;                                                           \
+        continue;                                                            \
+      }                                                                      \
       compact_top = cp->space->forward(oop(q), size, cp, compact_top);       \
       q += size;                                                             \
       end_of_live = q;                                                       \
@@ -191,9 +202,15 @@ inline HeapWord* Space::block_start(const void* p) {
     if (_first_dead == t) {                                                     \
       q = t;                                                                    \
     } else {                                                                    \
-      /* $$$ This is funky.  Using this to read the previously written          \
-       * LiveRange.  See also use below. */                                     \
-      q = (HeapWord*)oop(_first_dead)->mark()->decode_pointer();                \
+      if (oop(q)->mark()->is_mixed_object()) {                                  \
+        size_t size = oop(q)->adjust_pointers();                                \
+        size = adjust_obj_size(size);                                           \
+        q += size;                                                              \
+      } else {                                                                  \
+        /* $$$ This is funky.  Using this to read the previously written        \
+         * LiveRange.  See also use below. */                                   \
+        q = (HeapWord*)oop(_first_dead)->mark()->decode_pointer();              \
+      }                                                                         \
     }                                                                           \
   }                                                                             \
                                                                                 \
@@ -250,8 +267,14 @@ inline HeapWord* Space::block_start(const void* p) {
     if (_first_dead == t) {                                                     \
       q = t;                                                                    \
     } else {                                                                    \
-      /* $$$ Funky */                                                           \
-      q = (HeapWord*) oop(_first_dead)->mark()->decode_pointer();               \
+      if (oop(q)->mark()->is_mixed_object()) {                                  \
+        size_t size = oop(q)->adjust_pointers();                                \
+        size = adjust_obj_size(size);                                           \
+        q += size;                                                              \
+      } else {                                                                  \
+        /* $$$ Funky */                                                         \
+        q = (HeapWord*) oop(_first_dead)->mark()->decode_pointer();             \
+      }                                                                         \
     }                                                                           \
   }                                                                             \
                                                                                 \
@@ -269,6 +292,9 @@ inline HeapWord* Space::block_start(const void* p) {
                                                                                 \
       /* size and destination */                                                \
       size_t size = obj_size(q);                                                \
+      if (oop(q)->mark()->is_mixed_object()) {                                  \
+        q += size; continue;                                                    \
+      }                                                                         \
       HeapWord* compaction_top = (HeapWord*)oop(q)->forwardee();                \
                                                                                 \
       /* prefetch beyond compaction_top */                                      \

@@ -108,6 +108,9 @@ void Parse::do_field_access(bool is_get, bool is_field) {
     return;
   }
 
+  bool check_stale_object = field->needs_stale_object_check();
+  bool check_mixed_object = field->needs_mixed_object_check();
+
   assert(field->will_link(method()->holder(), bc()), "getfield: typeflow responsibility");
 
   // Note:  We do not check for an unloaded field type here any more.
@@ -117,12 +120,20 @@ void Parse::do_field_access(bool is_get, bool is_field) {
   if (is_field) {
     int obj_depth = is_get ? 0 : field->type()->size();
     obj = null_check(peek(obj_depth));
+    if (check_stale_object) {
+      obj = do_stale_object_check(obj, check_mixed_object);
+    }
     // Compile-time detect of null-exception?
     if (stopped())  return;
 
 #ifdef ASSERT
-    const TypeInstPtr *tjp = TypeInstPtr::make(TypePtr::NotNull, iter().get_declared_field_holder());
-    assert(_gvn.type(obj)->higher_equal(tjp), "cast_up is no longer needed");
+    if (check_stale_object && !check_mixed_object) {
+      const TypeInstPtr *tjp = TypeInstPtr::make(TypePtr::Valid, iter().get_declared_field_holder());
+      assert(_gvn.type(obj)->higher_equal(tjp), "cast_up is no longer needed");
+    } else {
+      const TypeInstPtr *tjp = TypeInstPtr::make(TypePtr::NotNull, iter().get_declared_field_holder());
+      assert(_gvn.type(obj)->higher_equal(tjp), "cast_up is no longer needed");
+    }
 #endif
 
     if (is_get) {

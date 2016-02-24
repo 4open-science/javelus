@@ -708,6 +708,19 @@ void InterpreterMacroAssembler::lock_object(Register lock_reg) {
     // Load object pointer into obj_reg %c_rarg3
     movptr(obj_reg, Address(lock_reg, obj_offset));
 
+    // Check whether swap_reg is mixed object
+    Label notMix;
+    movptr(swap_reg, Address(obj_reg, oopDesc::mark_offset_in_bytes()));
+    andptr(swap_reg, markOopDesc::mixed_object_mask_in_place);
+    cmpptr(swap_reg, markOopDesc::mixed_object_value);
+    jcc(Assembler::notEqual, notMix);
+    // load the phantom object here
+    movptr(obj_reg, Address(obj_reg, oopDesc::mark_offset_in_bytes()));
+    andptr(obj_reg, ~markOopDesc::mixed_object_mask_in_place);
+    // obj_reg now is the phantom object
+    bind(notMix);
+    /* end of mix support*/
+
     if (UseBiasedLocking) {
       biased_locking_enter(lock_reg, obj_reg, swap_reg, rscratch1, false, done, &slow_case);
     }
@@ -792,12 +805,21 @@ void InterpreterMacroAssembler::unlock_object(Register lock_reg) {
 
     save_bcp(); // Save in case of exception
 
+    // Load oop into obj_reg(%c_rarg3)
+    movptr(obj_reg, Address(lock_reg, BasicObjectLock::obj_offset_in_bytes()));
+
+    Label notMix;
+    movptr(swap_reg, Address(obj_reg, oopDesc::mark_offset_in_bytes()));
+    andptr(swap_reg, markOopDesc::mixed_object_mask_in_place);
+    cmpptr(swap_reg, markOopDesc::mixed_object_value);
+    jcc(Assembler::notEqual, notMix);
+    movptr(obj_reg, Address(obj_reg, oopDesc::mark_offset_in_bytes()));
+    andptr(obj_reg, ~markOopDesc::mixed_object_mask_in_place);
+    bind(notMix);
+
     // Convert from BasicObjectLock structure to object and BasicLock
     // structure Store the BasicLock address into %rax
     lea(swap_reg, Address(lock_reg, BasicObjectLock::lock_offset_in_bytes()));
-
-    // Load oop into obj_reg(%c_rarg3)
-    movptr(obj_reg, Address(lock_reg, BasicObjectLock::obj_offset_in_bytes()));
 
     // Free entry
     movptr(Address(lock_reg, BasicObjectLock::obj_offset_in_bytes()), (int32_t)NULL_WORD);

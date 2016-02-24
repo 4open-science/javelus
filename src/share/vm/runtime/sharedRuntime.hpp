@@ -62,6 +62,7 @@ class SharedRuntime: AllStatic {
   static RuntimeStub*        _resolve_virtual_call_blob;
   static RuntimeStub*        _resolve_static_call_blob;
 
+
   static DeoptimizationBlob* _deopt_blob;
 
   static SafepointBlob*      _polling_page_vectors_safepoint_handler_blob;
@@ -229,7 +230,6 @@ class SharedRuntime: AllStatic {
     assert(_resolve_static_call_blob != NULL, "oops");
     return _resolve_static_call_blob->entry_point();
   }
-
   static SafepointBlob* polling_page_return_handler_blob()     { return _polling_page_return_handler_blob; }
   static SafepointBlob* polling_page_safepoint_handler_blob()  { return _polling_page_safepoint_handler_blob; }
   static SafepointBlob* polling_page_vectors_safepoint_handler_blob()  { return _polling_page_vectors_safepoint_handler_blob; }
@@ -329,6 +329,8 @@ class SharedRuntime: AllStatic {
   // Find the method that called us.
   static methodHandle find_callee_method(JavaThread* thread, TRAPS);
 
+  // Stale object update routine before method entry or in method.
+  static void transform_object(JavaThread* thread, oopDesc* recv);
 
  private:
   static Handle find_callee_info(JavaThread* thread,

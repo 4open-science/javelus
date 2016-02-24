@@ -179,14 +179,20 @@ address    TemplateInterpreter::_throw_exception_entry                      = NU
 EntryPoint TemplateInterpreter::_trace_code;
 #endif // !PRODUCT
 EntryPoint TemplateInterpreter::_return_entry[TemplateInterpreter::number_of_return_entries];
+EntryPoint TemplateInterpreter::_return_with_barrier_entry[TemplateInterpreter::number_of_return_entries];
 EntryPoint TemplateInterpreter::_earlyret_entry;
 EntryPoint TemplateInterpreter::_deopt_entry [TemplateInterpreter::number_of_deopt_entries ];
+EntryPoint TemplateInterpreter::_deopt_with_barrier_entry [TemplateInterpreter::number_of_deopt_entries ];
 EntryPoint TemplateInterpreter::_continuation_entry;
 EntryPoint TemplateInterpreter::_safept_entry;
 
 address TemplateInterpreter::_invoke_return_entry[TemplateInterpreter::number_of_return_addrs];
 address TemplateInterpreter::_invokeinterface_return_entry[TemplateInterpreter::number_of_return_addrs];
 address TemplateInterpreter::_invokedynamic_return_entry[TemplateInterpreter::number_of_return_addrs];
+
+address TemplateInterpreter::_invoke_return_with_barrier_entry[TemplateInterpreter::number_of_return_addrs];
+address TemplateInterpreter::_invokeinterface_return_with_barrier_entry[TemplateInterpreter::number_of_return_addrs];
+address TemplateInterpreter::_invokedynamic_return_with_barrier_entry[TemplateInterpreter::number_of_return_addrs];
 
 DispatchTable TemplateInterpreter::_active_table;
 DispatchTable TemplateInterpreter::_normal_table;
@@ -255,6 +261,24 @@ void TemplateInterpreterGenerator::generate_all() {
     }
   }
 
+  { CodeletMark cm(_masm, "return with barrier entry points");
+    const int index_size = sizeof(u2);
+    for (int i = 0; i < Interpreter::number_of_return_entries; i++) {
+      Interpreter::_return_with_barrier_entry[i] =
+        EntryPoint(
+          generate_return_with_barrier_entry_for(itos, i, index_size),
+          generate_return_with_barrier_entry_for(itos, i, index_size),
+          generate_return_with_barrier_entry_for(itos, i, index_size),
+          generate_return_with_barrier_entry_for(atos, i, index_size),
+          generate_return_with_barrier_entry_for(itos, i, index_size),
+          generate_return_with_barrier_entry_for(ltos, i, index_size),
+          generate_return_with_barrier_entry_for(ftos, i, index_size),
+          generate_return_with_barrier_entry_for(dtos, i, index_size),
+          generate_return_with_barrier_entry_for(vtos, i, index_size)
+        );
+    }
+  }
+
   { CodeletMark cm(_masm, "invoke return entry points");
     const TosState states[] = {itos, itos, itos, itos, ltos, ftos, dtos, atos, vtos};
     const int invoke_length = Bytecodes::length_for(Bytecodes::_invokestatic);
@@ -266,6 +290,20 @@ void TemplateInterpreterGenerator::generate_all() {
       Interpreter::_invoke_return_entry[i] = generate_return_entry_for(state, invoke_length, sizeof(u2));
       Interpreter::_invokeinterface_return_entry[i] = generate_return_entry_for(state, invokeinterface_length, sizeof(u2));
       Interpreter::_invokedynamic_return_entry[i] = generate_return_entry_for(state, invokedynamic_length, sizeof(u4));
+    }
+  }
+
+  { CodeletMark cm(_masm, "invoke return with barrier entry points");
+    const TosState states[] = {itos, itos, itos, itos, ltos, ftos, dtos, atos, vtos};
+    const int invoke_length = Bytecodes::length_for(Bytecodes::_invokestatic);
+    const int invokeinterface_length = Bytecodes::length_for(Bytecodes::_invokeinterface);
+    const int invokedynamic_length = Bytecodes::length_for(Bytecodes::_invokedynamic);
+
+    for (int i = 0; i < Interpreter::number_of_return_addrs; i++) {
+      TosState state = states[i];
+      Interpreter::_invoke_return_with_barrier_entry[i] = generate_return_with_barrier_entry_for(state, invoke_length, sizeof(u2));
+      Interpreter::_invokeinterface_return_with_barrier_entry[i] = generate_return_with_barrier_entry_for(state, invokeinterface_length, sizeof(u2));
+      Interpreter::_invokedynamic_return_with_barrier_entry[i] = generate_return_with_barrier_entry_for(state, invokedynamic_length, sizeof(u4));
     }
   }
 
@@ -297,6 +335,23 @@ void TemplateInterpreterGenerator::generate_all() {
           generate_deopt_entry_for(ftos, i),
           generate_deopt_entry_for(dtos, i),
           generate_deopt_entry_for(vtos, i)
+        );
+    }
+  }
+
+  { CodeletMark cm(_masm, "deoptimization with barrier entry points");
+    for (int i = 0; i < Interpreter::number_of_deopt_entries; i++) {
+      Interpreter::_deopt_entry[i] =
+        EntryPoint(
+          generate_deopt_with_barrier_entry_for(itos, i),
+          generate_deopt_with_barrier_entry_for(itos, i),
+          generate_deopt_with_barrier_entry_for(itos, i),
+          generate_deopt_with_barrier_entry_for(atos, i),
+          generate_deopt_with_barrier_entry_for(itos, i),
+          generate_deopt_with_barrier_entry_for(ltos, i),
+          generate_deopt_with_barrier_entry_for(ftos, i),
+          generate_deopt_with_barrier_entry_for(dtos, i),
+          generate_deopt_with_barrier_entry_for(vtos, i)
         );
     }
   }
@@ -370,6 +425,10 @@ void TemplateInterpreterGenerator::generate_all() {
   method_entry(zerolocals_synchronized)
   method_entry(empty)
   method_entry(accessor)
+  method_entry(dsu_zerolocals)
+  method_entry(dsu_zerolocals_synchronized)
+  method_entry(dsu_empty)
+  method_entry(dsu_accessor)
   method_entry(abstract)
   method_entry(java_lang_math_sin  )
   method_entry(java_lang_math_cos  )
@@ -394,6 +453,8 @@ void TemplateInterpreterGenerator::generate_all() {
   Interpreter::_native_entry_begin = Interpreter::code()->code_end();
   method_entry(native)
   method_entry(native_synchronized)
+  method_entry(dsu_native)
+  method_entry(dsu_native_synchronized)
   Interpreter::_native_entry_end = Interpreter::code()->code_end();
 
 #undef method_entry
@@ -585,10 +646,34 @@ address TemplateInterpreter::return_entry(TosState state, int length, Bytecodes:
   }
 }
 
+address TemplateInterpreter::return_with_barrier_entry(TosState state, int length, Bytecodes::Code code) {
+  guarantee(0 <= length && length < Interpreter::number_of_return_entries, "illegal length");
+  const int index = TosState_as_index(state);
+  switch (code) {
+  case Bytecodes::_invokestatic:
+  case Bytecodes::_invokespecial:
+  case Bytecodes::_invokevirtual:
+  case Bytecodes::_invokehandle:
+    return _invoke_return_with_barrier_entry[index];
+  case Bytecodes::_invokeinterface:
+    return _invokeinterface_return_with_barrier_entry[index];
+  case Bytecodes::_invokedynamic:
+    return _invokedynamic_return_with_barrier_entry[index];
+  default:
+    assert(!Bytecodes::is_invoke(code), err_msg("invoke instructions should be handled separately: %s", Bytecodes::name(code)));
+    return _return_with_barrier_entry[length].entry(state);
+  }
+}
+
 
 address TemplateInterpreter::deopt_entry(TosState state, int length) {
   guarantee(0 <= length && length < Interpreter::number_of_deopt_entries, "illegal length");
   return _deopt_entry[length].entry(state);
+}
+
+address TemplateInterpreter::deopt_with_barrier_entry(TosState state, int length) {
+  guarantee(0 <= length && length < Interpreter::number_of_deopt_entries, "illegal length");
+  return _deopt_with_barrier_entry[length].entry(state);
 }
 
 //------------------------------------------------------------------------------------------------------------------------
@@ -640,6 +725,10 @@ address TemplateInterpreter::deopt_continue_after_entry(Method* method, address 
   return AbstractInterpreter::deopt_continue_after_entry(method, bcp, callee_parameters, is_top_frame);
 }
 
+address TemplateInterpreter::deopt_continue_after_with_barrier_entry(Method* method, address bcp, int callee_parameters, bool is_top_frame) {
+  return AbstractInterpreter::deopt_continue_after_with_barrier_entry(method, bcp, callee_parameters, is_top_frame);
+}
+
 // If deoptimization happens, this function returns the point where the interpreter reexecutes
 // the bytecode.
 // Note: Bytecodes::_athrow (C1 only) and Bytecodes::_return are the special cases
@@ -656,6 +745,21 @@ address TemplateInterpreter::deopt_reexecute_entry(Method* method, address bcp) 
     return _normal_table.entry(Bytecodes::_return).entry(vtos);
   } else {
     return AbstractInterpreter::deopt_reexecute_entry(method, bcp);
+  }
+}
+
+address TemplateInterpreter::deopt_reexecute_with_barrier_entry(Method* method, address bcp) {
+  assert(method->contains(bcp), "just checkin'");
+  Bytecodes::Code code   = Bytecodes::java_code_at(method, bcp);
+  if (code == Bytecodes::_return) {
+    // This is used for deopt during registration of finalizers
+    // during Object.<init>.  We simply need to resume execution at
+    // the standard return vtos bytecode to pop the frame normally.
+    // reexecuting the real bytecode would cause double registration
+    // of the finalizable object.
+    return _normal_table.entry(Bytecodes::_return).entry(vtos);
+  } else {
+    return AbstractInterpreter::deopt_reexecute_with_barrier_entry(method, bcp);
   }
 }
 

@@ -31,7 +31,7 @@
   friend class AbstractInterpreterGenerator;
 
  private:
-
+  address generate_dsu_method_entry(AbstractInterpreter::MethodKind kind);
   address generate_normal_entry(bool synchronized);
   address generate_native_entry(bool synchronized);
   address generate_abstract_entry(void);

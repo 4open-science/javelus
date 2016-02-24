@@ -171,13 +171,14 @@ VtableStub* VtableStubs::create_itable_stub(int itable_index) {
 
   const Register method = rbx;
   Label throw_icce;
+  Label check_stale_object, hit;
 
   // Get Method* and entrypoint for compiler
   __ lookup_interface_method(// inputs: rec. class, interface, itable index
                              r10, rax, itable_index,
                              // outputs: method, scan temp. reg
                              method, r11,
-                             throw_icce);
+                             /*throw_icce*/check_stale_object);
 
   // method (rbx): Method*
   // j_rarg0: receiver
@@ -197,7 +198,44 @@ VtableStub* VtableStubs::create_itable_stub(int itable_index) {
   // rbx: Method*
   // j_rarg0: receiver
   address ame_addr = __ pc();
+
+  __ bind(hit); // found the method
+
   __ jmp(Address(method, Method::from_compiled_offset()));
+
+  __ bind(check_stale_object);
+
+
+  const Address mark_word = Address(rcx, 0);
+
+  Label skip_check;
+
+  __ movptr(rdi, Address(rcx, oopDesc::klass_offset_in_bytes()));
+  __ movl(rdi, Address(rdi, Klass::dsu_flags_offset()));
+  __ andl(rdi, DSU_FLAGS_CLASS_IS_STALE_CLASS);
+  __ jcc(Assembler::zero, throw_icce);// not a invalid class, skip check and thro icce.
+
+
+  // call transformer routine
+  __ push_CPU_state();
+  __ call_VM(noreg, CAST_FROM_FN_PTR(address, SharedRuntime::transform_object), rcx);
+  __ pop_CPU_state();
+
+  __ bind(skip_check);
+
+
+  // XXX load klass again
+  // only rsi is dirty
+  __ movptr(rsi, Address(rcx, oopDesc::klass_offset_in_bytes()));
+
+  __ lookup_interface_method(// inputs: rec. class, interface, itable index
+                             rsi, rax, itable_index,
+                             // outputs: method, scan temp. reg
+                             method, rdi,
+                             throw_icce);
+
+
+  __ jmp(hit);
 
   __ bind(throw_icce);
   __ jump(RuntimeAddress(StubRoutines::throw_IncompatibleClassChangeError_entry()));

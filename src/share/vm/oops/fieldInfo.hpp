@@ -66,7 +66,8 @@ class FieldInfo VALUE_OBJ_CLASS_SPEC {
     initval_index_offset     = 3,
     low_packed_offset        = 4,
     high_packed_offset       = 5,
-    field_slots              = 6
+    dsu_flags_offset         = 6,
+    field_slots              = 7
   };
 
  private:
@@ -98,9 +99,11 @@ class FieldInfo VALUE_OBJ_CLASS_SPEC {
     _shorts[initval_index_offset] = initval_index;
     _shorts[low_packed_offset] = 0;
     _shorts[high_packed_offset] = 0;
+    _shorts[dsu_flags_offset] = 0;
   }
 
   u2 access_flags() const                        { return _shorts[access_flags_offset];            }
+  u2 dsu_flags() const                           { return _shorts[dsu_flags_offset];               }
   u4 offset() const {
     u2 lo = _shorts[low_packed_offset];
     switch(lo & FIELDINFO_TAG_MASK) {
@@ -193,6 +196,8 @@ class FieldInfo VALUE_OBJ_CLASS_SPEC {
   }
 
   void set_access_flags(u2 val)                  { _shorts[access_flags_offset] = val;             }
+  void set_dsu_flags(u2 val)                     { _shorts[dsu_flags_offset] = val;                }
+
   void set_offset(u4 val)                        {
     val = val << FIELDINFO_TAG_SIZE; // make room for tag
     _shorts[low_packed_offset] = extract_low_short_from_int(val) | FIELDINFO_TAG_OFFSET;

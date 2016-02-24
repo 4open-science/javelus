@@ -528,6 +528,10 @@ void Parse::do_call() {
   // because exceptions don't return to the call site.)
   profile_call(receiver);
 
+  if (cg->method()->needs_stale_object_check()) {
+    receiver = do_stale_object_check(receiver, false);
+  }
+
   JVMState* new_jvms = cg->generate(jvms);
   if (new_jvms == NULL) {
     // When inlining attempt fails (e.g., too many arguments),

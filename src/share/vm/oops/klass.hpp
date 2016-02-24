@@ -32,6 +32,7 @@
 #include "oops/klassPS.hpp"
 #include "oops/metadata.hpp"
 #include "oops/oop.hpp"
+#include "runtime/dsuFlags.hpp"
 #include "trace/traceMacros.hpp"
 #include "utilities/accessFlags.hpp"
 #include "utilities/macros.hpp"
@@ -163,6 +164,7 @@ class Klass : public Metadata {
 
   jint        _modifier_flags;  // Processed access flags, for use by Class.getModifiers.
   AccessFlags _access_flags;    // Access flags. The class/interface distinction is stored here.
+  DSUFlags    _dsu_flags;
 
   // Biased locking implementation and statistics
   // (the 64-bit chunk goes first, to avoid some fragmentation)
@@ -319,6 +321,7 @@ protected:
   static ByteSize modifier_flags_offset()        { return in_ByteSize(offset_of(Klass, _modifier_flags)); }
   static ByteSize layout_helper_offset()         { return in_ByteSize(offset_of(Klass, _layout_helper)); }
   static ByteSize access_flags_offset()          { return in_ByteSize(offset_of(Klass, _access_flags)); }
+  static ByteSize dsu_flags_offset()             { return in_ByteSize(offset_of(Klass, _dsu_flags)); }
 
   // Unpacking layout_helper:
   enum {
@@ -524,6 +527,8 @@ protected:
   virtual bool oop_is_instanceMirror()      const { return false; }
   virtual bool oop_is_instanceRef()         const { return false; }
 
+  virtual bool instances_require_update(int rn) const { return false; }
+
   // Fast non-virtual versions
   #ifndef ASSERT
   #define assert_same_query(xval, xcheck) xval
@@ -570,6 +575,34 @@ protected:
   void set_has_vanilla_constructor()    { _access_flags.set_has_vanilla_constructor(); }
   bool has_miranda_methods () const     { return access_flags().has_miranda_methods(); }
   void set_has_miranda_methods()        { _access_flags.set_has_miranda_methods(); }
+
+
+  // DSU Flags support
+  DSUFlags dsu_flags() const          { return _dsu_flags;  }
+  void set_dsu_flags(DSUFlags flags)  { _dsu_flags = flags; }
+
+  bool is_stale_class()                        const { return _dsu_flags.is_stale_class(); }
+  bool is_type_narrowed_class()                const { return _dsu_flags.is_type_narrowed_class(); }
+  bool is_super_type_of_stale_class()          const { return _dsu_flags.is_super_type_of_stale_class(); }
+  bool is_type_narrowing_relevant_type()       const { return _dsu_flags.is_type_narrowing_relevant_type(); }
+  bool is_new_redefined_class()                const { return _dsu_flags.is_new_redefined_class(); }
+  bool is_inplace_new_class()                  const { return _dsu_flags.is_inplace_new_class(); }
+  bool is_transformer_class()                  const { return _dsu_flags.is_transformer_class(); }
+
+  void set_is_stale_class()                          { _dsu_flags.set_is_stale_class(); }
+  void set_is_type_narrowed_class()                  { _dsu_flags.set_is_type_narrowed_class(); }
+  void set_is_super_type_of_stale_class()            { _dsu_flags.set_is_super_type_of_stale_class(); }
+  void set_is_type_narrowing_relevant_type()         { _dsu_flags.set_is_type_narrowing_relevant_type();}
+  void set_is_inplace_new_class()                    { _dsu_flags.set_is_inplace_new_class(); }
+  void set_is_new_redefined_class()                  { _dsu_flags.set_is_new_redefined_class(); }
+  void set_is_transformer_class()                    { _dsu_flags.set_is_transformer_class(); }
+
+  void clear_is_stale_class()                        { _dsu_flags.clear_is_stale_class(); }
+  void clear_is_type_narrowed_class()                { _dsu_flags.clear_is_type_narrowed_class(); }
+  void clear_is_super_type_of_stale_class()          { _dsu_flags.clear_is_super_type_of_stale_class(); }
+  void clear_is_type_narrowing_relevant_type()       { _dsu_flags.clear_is_type_narrowing_relevant_type(); }
+  void clear_is_new_redefined_class()                { _dsu_flags.clear_is_new_redefined_class(); }
+
 
   // Biased locking support
   // Note: the prototype header is always set up to be at least the

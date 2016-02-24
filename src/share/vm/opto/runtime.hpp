@@ -127,6 +127,7 @@ class OptoRuntime : public AllStatic {
 
   // References to generated stubs
   static address _new_instance_Java;
+  static address _update_stale_object_Java;
   static address _new_array_Java;
   static address _new_array_nozero_Java;
   static address _multianewarray2_Java;
@@ -155,6 +156,9 @@ class OptoRuntime : public AllStatic {
 
   // Allocate storage for a Java instance.
   static void new_instance_C(Klass* instance_klass, JavaThread *thread);
+ 
+  // Update stale object
+  static void update_stale_object_C(oopDesc* stale_object, JavaThread *thread);
 
   // Allocate storage for a objArray or typeArray
   static void new_array_C(Klass* array_klass, int len, JavaThread *thread);
@@ -227,6 +231,7 @@ private:
 
   // access to runtime stubs entry points for java code
   static address new_instance_Java()                     { return _new_instance_Java; }
+  static address update_stale_object_Java()              { return _update_stale_object_Java; }
   static address new_array_Java()                        { return _new_array_Java; }
   static address new_array_nozero_Java()                 { return _new_array_nozero_Java; }
   static address multianewarray2_Java()                  { return _multianewarray2_Java; }
@@ -267,6 +272,7 @@ private:
   // ======================================================
 
   static const TypeFunc* new_instance_Type(); // object allocation (slow case)
+  static const TypeFunc* update_stale_object_Type(); // update stale object
   static const TypeFunc* new_array_Type ();   // [a]newarray (slow case)
   static const TypeFunc* multianewarray_Type(int ndim); // multianewarray
   static const TypeFunc* multianewarray2_Type(); // multianewarray

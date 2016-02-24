@@ -76,6 +76,7 @@ ciMethod::ciMethod(methodHandle h_m, ciInstanceKlass* holder) :
 
   // These fields are always filled in in loaded methods.
   _flags = ciFlags(h_m()->access_flags());
+  _dsu_flags = ciDSUFlags(h_m()->dsu_flags());
 
   // Easy to compute, so fill them in now.
   _max_stack          = h_m()->max_stack();

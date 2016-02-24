@@ -98,6 +98,13 @@ class AbstractInterpreter: AllStatic {
     java_util_zip_CRC32_update,                                 // implementation of java.util.zip.CRC32.update()
     java_util_zip_CRC32_updateBytes,                            // implementation of java.util.zip.CRC32.updateBytes()
     java_util_zip_CRC32_updateByteBuffer,                       // implementation of java.util.zip.CRC32.updateByteBuffer()
+
+    dsu_zerolocals,
+    dsu_zerolocals_synchronized,
+    dsu_native,
+    dsu_native_synchronized,
+    dsu_empty,
+    dsu_accessor,
     number_of_method_entries,
     invalid = -1
   };
@@ -156,6 +163,9 @@ class AbstractInterpreter: AllStatic {
   // length = invoke bytecode length (to advance to next bytecode)
   static address deopt_entry(TosState state, int length) { ShouldNotReachHere(); return NULL; }
   static address return_entry(TosState state, int length, Bytecodes::Code code) { ShouldNotReachHere(); return NULL; }
+  
+  static address deopt_with_barrier_entry(TosState state, int length) { ShouldNotReachHere(); return NULL; }
+  static address return_with_barrier_entry(TosState state, int length, Bytecodes::Code code) { ShouldNotReachHere(); return NULL; }
 
   static address    rethrow_exception_entry()                   { return _rethrow_exception_entry; }
 
@@ -173,6 +183,13 @@ class AbstractInterpreter: AllStatic {
   static address deopt_reexecute_entry(Method* method, address bcp);
   // Deoptimization should reexecute this bytecode
   static bool    bytecode_should_reexecute(Bytecodes::Code code);
+
+  static address deopt_continue_after_with_barrier_entry(Method* method,
+                                            address bcp,
+                                            int callee_parameters,
+                                            bool is_top_frame);
+  // Compute the entry address for reexecution
+  static address deopt_reexecute_with_barrier_entry(Method* method, address bcp);
 
   // deoptimization support
   static int        size_activation(int max_stack,

@@ -38,6 +38,7 @@
 #include "prims/methodHandles.hpp"
 #include "prims/nativeLookup.hpp"
 #include "runtime/compilationPolicy.hpp"
+#include "runtime/dsu.hpp"
 #include "runtime/fieldDescriptor.hpp"
 #include "runtime/frame.inline.hpp"
 #include "runtime/handles.inline.hpp"
@@ -812,7 +813,9 @@ void LinkResolver::resolve_field(fieldDescriptor& fd, KlassHandle resolved_klass
 
   // Final fields can only be accessed from its own class.
   if (is_put && fd.access_flags().is_final() && sel_klass() != current_klass()) {
-    THROW(vmSymbols::java_lang_IllegalAccessError());
+    if (!current_klass->is_transformer_class()) {
+      THROW(vmSymbols::java_lang_IllegalAccessError());
+    }
   }
 
   // initialize resolved_klass if necessary
@@ -1093,6 +1096,16 @@ void LinkResolver::runtime_resolve_special_method(CallInfo& result, methodHandle
     tty->cr();
   }
 
+  assert(!resolved_klass->is_stale_class(), "should not resovle a stale class");
+  if (resolved_klass->is_new_redefined_class() && resolved_klass->should_be_initialized()) {
+    ResourceMark rm(THREAD);
+    DSU_TRACE(0x00002000, ("Initialize a new redefined class [%s] during runtime_resolve_special_method.", resolved_klass->name()->as_C_string()));
+    resolved_klass->initialize(THREAD);
+    if (HAS_PENDING_EXCEPTION) {
+      DSU_WARN(("Initializing a new redefined class [%s] at runtime_resolve_special_method results an error.", resolved_klass->name()->as_C_string()));
+    }
+  }
+
   // setup result
   result.set_static(resolved_klass, sel_method, CHECK);
 }
@@ -1250,6 +1263,28 @@ void LinkResolver::runtime_resolve_virtual_method(CallInfo& result,
     }
     tty->cr();
   }
+
+  assert(!resolved_klass->is_stale_class(), "should resolve to a stale class.");
+  assert(!recv_klass->is_stale_class(), "should resolve to a stale class.");
+
+  if(resolved_klass->is_new_redefined_class() && resolved_klass->should_be_initialized()) {
+    ResourceMark rm(THREAD);
+    DSU_TRACE(0x00002000, ("Initialize a new redefined class [%s] during runtime_resolve_virtual_method.", resolved_klass->name()->as_C_string()));
+    recv_klass->initialize(THREAD);
+    if (HAS_PENDING_EXCEPTION) {
+      DSU_WARN(("Initializing resolved_klass %s at runtime_resolve_virtual_method results in an error.", resolved_klass->name()->as_C_string()));
+    }
+  }
+
+  if(recv_klass->is_new_redefined_class() && recv_klass->should_be_initialized()){
+    ResourceMark rm(THREAD);
+    DSU_TRACE(0x00002000, ("Initialize a new redefined class [%s] during runtime_resolve_virtual_method.", recv_klass->name()->as_C_string()));
+    recv_klass->initialize(THREAD);
+    if (HAS_PENDING_EXCEPTION) {
+      DSU_WARN(("Initializing recv_klass %s at runtime_resolve_virtual_method results in an error.", recv_klass->name()->as_C_string()));
+    }
+  }
+
   // setup result
   result.set_virtual(resolved_klass, recv_klass, resolved_method, selected_method, vtable_index, CHECK);
 }
@@ -1359,6 +1394,28 @@ void LinkResolver::runtime_resolve_interface_method(CallInfo& result, methodHand
     }
     tty->cr();
   }
+
+  assert(!resolved_klass->is_stale_class(), "should resolve to a stale class.");
+  assert(!recv_klass->is_stale_class(), "should resolve to a stale class.");
+
+  if(resolved_klass->is_new_redefined_class() && resolved_klass->should_be_initialized()) {
+    ResourceMark rm(THREAD);
+    DSU_TRACE(0x00002000, ("Initialize a new redefined class [%s] during runtime_resolve_virtual_method.", resolved_klass->name()->as_C_string()));
+    recv_klass->initialize(THREAD);
+    if (HAS_PENDING_EXCEPTION) {
+      DSU_WARN(("Initializing resolved_klass %s at runtime_resolve_virtual_method results in an error.", resolved_klass->name()->as_C_string()));
+    }
+  }
+
+  if(recv_klass->is_new_redefined_class() && recv_klass->should_be_initialized()){
+    ResourceMark rm(THREAD);
+    DSU_TRACE(0x00002000, ("Initialize a new redefined class [%s] during runtime_resolve_virtual_method.", recv_klass->name()->as_C_string()));
+    recv_klass->initialize(THREAD);
+    if (HAS_PENDING_EXCEPTION) {
+      DSU_WARN(("Initializing recv_klass %s at runtime_resolve_virtual_method results in an error.", recv_klass->name()->as_C_string()));
+    }
+  }
+
   // setup result
   if (!resolved_method->has_itable_index()) {
     int vtable_index = resolved_method->vtable_index();
@@ -1546,6 +1603,15 @@ void LinkResolver::resolve_invokevirtual(CallInfo& result, Handle recv,
   KlassHandle  current_klass;
   resolve_pool(resolved_klass, method_name,  method_signature, current_klass, pool, index, CHECK);
   KlassHandle recvrKlass (THREAD, recv.is_null() ? (Klass*)NULL : recv->klass());
+  if (recvrKlass.not_null() && recvrKlass->is_stale_class()){
+    Javelus::transform_object_common(recv, THREAD);
+    if(HAS_PENDING_EXCEPTION){
+      CLEAR_PENDING_EXCEPTION;
+      DSU_WARN(("Transform object fail during resolve invokevirtual."));
+    }
+    recvrKlass = KlassHandle(THREAD, recv->klass());
+    assert(!recvrKlass->is_stale_class(),"Could not be invalid after transformation.");
+  }
   resolve_virtual_call(result, recv, recvrKlass, resolved_klass, method_name, method_signature, current_klass, true, true, CHECK);
 }
 
@@ -1557,6 +1623,15 @@ void LinkResolver::resolve_invokeinterface(CallInfo& result, Handle recv, consta
   KlassHandle  current_klass;
   resolve_pool(resolved_klass, method_name,  method_signature, current_klass, pool, index, CHECK);
   KlassHandle recvrKlass (THREAD, recv.is_null() ? (Klass*)NULL : recv->klass());
+  if (recvrKlass.not_null() && recvrKlass->is_stale_class()){
+    Javelus::transform_object_common(recv, THREAD);
+    if(HAS_PENDING_EXCEPTION){
+      CLEAR_PENDING_EXCEPTION;
+      DSU_WARN(("Transform object fail during resolve invokevirtual."));
+    }
+    recvrKlass = KlassHandle(THREAD, recv->klass());
+    assert(!recvrKlass->is_stale_class(),"Could not be invalid after transformation.");
+  }
   resolve_interface_call(result, recv, recvrKlass, resolved_klass, method_name, method_signature, current_klass, true, true, CHECK);
 }
 

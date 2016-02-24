@@ -307,6 +307,9 @@ class GraphKit : public Phase {
   }
   Node* basic_plus_adr(Node* base, Node* ptr, Node* offset);
 
+  // DSU 
+  Node* do_stale_object_check(Node* receiver, bool check_mixed_object = false);
+  Node* do_mixed_object_check(Node* receiver);
 
   // Some convenient shortcuts for common nodes
   Node* IfTrue(IfNode* iff)                   { return _gvn.transform(new (C) IfTrueNode(iff));      }
@@ -417,6 +420,8 @@ class GraphKit : public Phase {
 
   // Cast obj to not-null on this path
   Node* cast_not_null(Node* obj, bool do_replace_in_map = true);
+  Node* cast_valid(Node* obj, bool do_replace_in_map = true);
+
   // Replace all occurrences of one node by another.
   void replace_in_map(Node* old, Node* neww);
 
@@ -834,7 +839,7 @@ class GraphKit : public Phase {
   // Generate a check-cast idiom.  Used by both the check-cast bytecode
   // and the array-store bytecode
   Node* gen_checkcast( Node *subobj, Node* superkls,
-                       Node* *failure_control = NULL );
+                       Node* *failure_control = NULL, bool check_stale_object = false);
 
   // Generate a subtyping check.  Takes as input the subtype and supertype.
   // Returns 2 values: sets the default control() to the true path and

@@ -162,6 +162,14 @@ class markOopDesc: public oopDesc {
          biased_lock_pattern      = 5
   };
 
+  enum {
+    mixed_object_bits           = 3, // right most 3 bits
+    mixed_object_value          = 7, // the value itself is the mask
+    mixed_object_shift          = 0, //  start from zero
+    mixed_object_mask           = right_n_bits(mixed_object_bits), // 7
+    mixed_object_mask_in_place  = mixed_object_mask << mixed_object_shift // 7
+  };
+
   enum { no_hash                  = 0 };  // no hash value assigned
 
   enum { no_hash_in_place         = (address_word)no_hash << hash_shift,
@@ -221,7 +229,9 @@ class markOopDesc: public oopDesc {
     return (mask_bits(value(), lock_mask_in_place) == marked_value);
   }
   bool is_neutral()  const { return (mask_bits(value(), biased_lock_mask_in_place) == unlocked_value); }
-
+  bool is_mixed_object() const{
+    return (mask_bits(value(), mixed_object_mask_in_place) == mixed_object_value);
+  }
   // Special temporary state of the markOop while being inflated.
   // Code that looks at mark outside a lock need to take this into account.
   bool is_being_inflated() const { return (value() == 0); }
@@ -333,6 +343,10 @@ class markOopDesc: public oopDesc {
   markOop set_marked()   { return markOop((value() & ~lock_mask_in_place) | marked_value); }
   markOop set_unmarked() { return markOop((value() & ~lock_mask_in_place) | unlocked_value); }
 
+  // mixed object
+  markOop set_mixed_object()        { return markOop((value() & ~mixed_object_mask_in_place) | mixed_object_value); }
+  markOop clear_mixed_object_bits() { return markOop(value() & ~mixed_object_mask_in_place); }
+
   uint    age()               const { return mask_bits(value() >> age_shift, age_mask); }
   markOop set_age(uint v) const {
     assert((v & ~age_mask) == 0, "shouldn't overflow age field");
@@ -365,6 +379,12 @@ class markOopDesc: public oopDesc {
 
   // Recover address of oop from encoded form used in mark
   inline void* decode_pointer() { if (UseBiasedLocking && has_bias_pattern()) return NULL; return clear_lock_bits(); }
+
+  // Prepare address of oop for phantom object into mark
+  inline static markOop encode_phantom_object_pointer_as_mark(void* p) { return markOop(p)->set_mixed_object(); }
+
+  // Recover address of oop from encoded form of phantom objecct used in mark
+  inline void* decode_phantom_object_pointer() { return clear_mixed_object_bits();}
 
   // These markOops indicate cms free chunk blocks and not objects.
   // In 64 bit, the markOop is set to distinguish them from oops.

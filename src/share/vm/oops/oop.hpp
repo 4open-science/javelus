@@ -103,7 +103,7 @@ class oopDesc {
 
   // Returns the actual oop size of the object
   int size();
-
+  int copy_to_size();
   // Sometimes (for complicated concurrency-related reasons), it is useful
   // to be able to figure out the size of an object knowing its klass.
   int size_given_klass(Klass* klass);

@@ -30,6 +30,7 @@
 #include "oops/oop.inline.hpp"
 #include "utilities/hashtable.hpp"
 
+
 class DictionaryEntry;
 class PSPromotionManager;
 class ProtectionDomainCacheTable;
@@ -42,6 +43,7 @@ class BoolObjectClosure;
 
 class Dictionary : public TwoOopHashtable<Klass*, mtClass> {
   friend class VMStructs;
+  friend class Javelus;
 private:
   // current iteration index.
   static int                    _current_class_index;
@@ -76,10 +78,13 @@ public:
 
   void free_entry(DictionaryEntry* entry);
 
-  void add_klass(Symbol* class_name, ClassLoaderData* loader_data,KlassHandle obj);
+  void add_klass(Symbol* class_name, ClassLoaderData* loader_data, KlassHandle obj);
 
   Klass* find_class(int index, unsigned int hash,
                       Symbol* name, ClassLoaderData* loader_data);
+
+  bool find_and_replace_klass(Symbol* class_name,
+                                ClassLoaderData* loader_data, KlassHandle klass);
 
   Klass* find_shared_class(int index, unsigned int hash, Symbol* name);
 

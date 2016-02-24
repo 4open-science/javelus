@@ -43,6 +43,7 @@ class ciField : public ResourceObj {
 
 private:
   ciFlags          _flags;
+  ciDSUFlags       _dsu_flags;
   ciInstanceKlass* _holder;
   ciSymbol*        _name;
   ciSymbol*        _signature;
@@ -64,6 +65,7 @@ private:
 
 public:
   ciFlags flags() { return _flags; }
+  ciDSUFlags dsu_flags() { return _dsu_flags; }
 
   // Of which klass is this field a member?
   //
@@ -166,6 +168,9 @@ public:
   // at each point of access.
   bool will_link(ciInstanceKlass* accessing_klass,
                  Bytecodes::Code bc);
+
+  bool needs_mixed_object_check  () { return dsu_flags().needs_mixed_object_check(); }
+  bool needs_stale_object_check  () { return dsu_flags().needs_stale_object_check(); }
 
   // Java access flags
   bool is_public      () { return flags().is_public(); }

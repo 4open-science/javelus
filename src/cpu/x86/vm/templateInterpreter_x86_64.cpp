@@ -196,6 +196,44 @@ address TemplateInterpreterGenerator::generate_return_entry_for(TosState state, 
   return entry;
 }
 
+address TemplateInterpreterGenerator::generate_return_with_barrier_entry_for(TosState state, int step, size_t index_size) {
+  address entry = __ pc();
+
+  // Restore stack bottom in case i2c adjusted stack
+  __ movptr(rsp, Address(rbp, frame::interpreter_frame_last_sp_offset * wordSize));
+  // and NULL it as marker that esp is now tos until next java call
+  __ movptr(Address(rbp, frame::interpreter_frame_last_sp_offset * wordSize), (int32_t)NULL_WORD);
+
+  __ restore_bcp();
+  __ restore_locals();
+
+  if (state == atos) {
+    Register mdp = rbx;
+    Register tmp = rcx;
+    __ profile_return_type(mdp, rax, tmp);
+  }
+
+  const Register cache = rbx;
+  const Register index = rcx;
+  __ get_cache_and_index_at_bcp(cache, index, 1, index_size);
+
+  const Register flags = cache;
+  __ movl(flags, Address(cache, index, Address::times_ptr, ConstantPoolCache::base_offset() + ConstantPoolCacheEntry::flags_offset()));
+  __ andl(flags, ConstantPoolCacheEntry::parameter_size_mask);
+  __ lea(rsp, Address(rsp, flags, Interpreter::stackElementScale()));
+  {
+    Label L;
+    __ cmpptr(Address(r15_thread, JavaThread::return_barrier_id_offset()), (int32_t) NULL_WORD);
+    __ jcc(Assembler::zero, L);
+    __ call_VM(noreg, CAST_FROM_FN_PTR(address, InterpreterRuntime::invoke_return_barrier));
+    __ stop("Not implemented yet, we should preserve return value.");
+    __ bind(L);
+  }
+  __ dispatch_next(state, step);
+
+  return entry;
+}
+
 
 address TemplateInterpreterGenerator::generate_deopt_entry_for(TosState state,
                                                                int step) {
@@ -213,6 +251,35 @@ address TemplateInterpreterGenerator::generate_deopt_entry_for(TosState state,
                CAST_FROM_FN_PTR(address,
                                 InterpreterRuntime::throw_pending_exception));
     __ should_not_reach_here();
+    __ bind(L);
+  }
+  __ dispatch_next(state, step);
+  return entry;
+}
+
+address TemplateInterpreterGenerator::generate_deopt_with_barrier_entry_for(TosState state,
+                                                               int step) {
+  address entry = __ pc();
+  // NULL last_sp until next java call
+  __ movptr(Address(rbp, frame::interpreter_frame_last_sp_offset * wordSize), (int32_t)NULL_WORD);
+  __ restore_bcp();
+  __ restore_locals();
+  // handle exceptions
+  {
+    Label L;
+    __ cmpptr(Address(r15_thread, Thread::pending_exception_offset()), (int32_t) NULL_WORD);
+    __ jcc(Assembler::zero, L);
+    __ call_VM(noreg,
+               CAST_FROM_FN_PTR(address,
+                                InterpreterRuntime::throw_pending_exception));
+    __ should_not_reach_here();
+    __ bind(L);
+  }
+  {
+    Label L;
+    __ cmpptr(Address(r15_thread, JavaThread::return_barrier_id_offset()), (int32_t) NULL_WORD);
+    __ jcc(Assembler::zero, L);
+    __ call_VM(noreg, CAST_FROM_FN_PTR(address, InterpreterRuntime::invoke_return_barrier));
     __ bind(L);
   }
   __ dispatch_next(state, step);
@@ -679,6 +746,41 @@ address InterpreterGenerator::generate_accessor_entry(void) {
                     Address::times_8,
                     ConstantPoolCache::base_offset() +
                     ConstantPoolCacheEntry::flags_offset()));
+
+    // rdi: temp
+    Label noCheck, notStale;
+    __ movl(rdi, rdx);
+    __ shrl(rdi, ConstantPoolCacheEntry::stale_object_check_shift);
+    __ andl(rdi, 0x01);
+    __ jcc(Assembler::zero, noCheck);
+
+    __ movptr(rdi, Address(rax, oopDesc::klass_offset_in_bytes()));
+    __ movl(rdi, Address(rdi, Klass::dsu_flags_offset()));
+    __ andl(rdi, DSU_FLAGS_CLASS_IS_STALE_CLASS);
+    __ jcc(Assembler::zero, notStale); // not a invalid class, skip update.
+
+    __ push_CPU_state();
+    __ call_VM(noreg, CAST_FROM_FN_PTR(address, InterpreterRuntime::update_stale_object), rax);
+    __ pop_CPU_state();
+
+    __ bind(notStale);
+
+    __ movl(rdi, rdx);
+    __ shrl(rdi, ConstantPoolCacheEntry::mixed_object_check_shift);
+    __ andl(rdi, 0x01);
+    __ jcc(Assembler::zero, noCheck);
+
+    Address mark_word = Address(rax, 0);
+    __ movl(rdi, mark_word);
+    __ andl(rdi, markOopDesc::mixed_object_mask_in_place);
+    __ cmpl(rdi, markOopDesc::mixed_object_value);
+
+    __ jcc(Assembler::notEqual, noCheck);
+
+    __ movl(rax, mark_word);
+    __ andl(rax, ~markOopDesc::mixed_object_mask_in_place);
+
+    __ bind(noCheck);
 
     Label notObj, notInt, notByte, notShort;
     const Address field_address(rax, rcx, Address::times_1);
@@ -1397,6 +1499,99 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
   return entry_point;
 }
 
+address InterpreterGenerator::generate_dsu_method_entry(AbstractInterpreter::MethodKind kind){
+
+  // ebx: Method*
+  // r13: sender sp
+  address entry = __ pc();
+  Label no_update;
+
+  const Address constMethod(rbx, Method::const_offset());
+  const Address access_flags(rbx, Method::access_flags_offset());
+  const Address size_of_parameters(rdx,
+                                   ConstMethod::size_of_parameters_offset());
+  const Address size_of_locals(rdx, ConstMethod::size_of_locals_offset());
+
+
+  // get parameter size (always needed)
+  __ movptr(rdx, constMethod);
+  __ load_unsigned_short(rcx, size_of_parameters);
+
+  {
+    // pop return address
+    __ pop(rax);
+    // Now, rsp points to the top of the previous frame.
+
+    // compute beginning of parameters (rdi)
+    // the top of stack: rsp
+    // the number of parameters: rcx
+    // the first parameter: rsp + rcx*stackElementScale - wordsize
+    __ movptr(rcx, Address(rsp, rcx, Interpreter::stackElementScale(), -wordSize));
+
+    __ null_check(rcx);
+    __ verify_oop(rcx);
+
+    // push return address again..
+    __ push(rax);
+  }
+
+  // load klass and test
+  __ movptr(rcx, Address(rcx, oopDesc::klass_offset_in_bytes()));
+  __ verify_oop(rdx);
+  __ movl(rdx, Address(rdx, Klass::dsu_flags_offset()));
+  __ andl(rdx, DSU_FLAGS_CLASS_IS_STALE_CLASS);
+
+  // Here caller can only be interpreted frame.
+  __ jcc(Assembler::zero, no_update);// not an invalid class, skip update.
+
+  // save sender sp, because the c2i entry may ..
+  __ restore_bcp();                              // rsi points to call/send
+  __ restore_locals();
+
+  // Caller can only be interpreted frame.
+  // clear last_java_sp
+  __ movptr(Address(rbp, frame::interpreter_frame_last_sp_offset * wordSize), NULL_WORD);
+
+  // save rbx: methodOop
+  __ get_thread(rax);
+  __ movptr(Address(rax, JavaThread::vm_result_2_offset()), NULL_WORD);
+
+  __ call_VM(noreg, CAST_FROM_FN_PTR(address, InterpreterRuntime::update_stale_object_and_reresolve_method), rcx);
+
+  Label not_null;
+  // XXX Should we update rbx?
+  __ get_thread(rax);
+  __ movptr(rdx, Address(rax, JavaThread::vm_result_2_offset()));
+  __ testptr(rdx, rdx);
+  __ jcc(Assembler::notZero, not_null);
+
+  __ stop("Reresolving new method failed at dsu method entry");
+
+  __ bind(not_null);
+
+  // update methodOop
+  __ movptr(rbx, rdx);
+  __ movptr(Address(rax, JavaThread::vm_result_2_offset()), NULL_WORD);
+
+  // save sender sp
+  __ prepare_to_jump_from_interpreted();
+  __ bind(no_update);
+
+
+  // non-mix entry must be generated before this.
+  switch(kind){
+    case Interpreter::dsu_zerolocals             : (void*)generate_normal_entry(false); break;
+    case Interpreter::dsu_zerolocals_synchronized: (void*)generate_normal_entry(true); break;
+    case Interpreter::dsu_native                 : (void*)generate_native_entry(false); break;
+    case Interpreter::dsu_native_synchronized    : (void*)generate_native_entry(true); break;
+    case Interpreter::dsu_empty                  : (void*)generate_empty_entry();  break;
+    case Interpreter::dsu_accessor               : (void*)generate_accessor_entry();break;
+    default                                             : ShouldNotReachHere();                            break;
+  }
+
+  return entry;
+}
+
 //
 // Generic interpreted method entry to (asm) interpreter
 //
@@ -1648,6 +1843,12 @@ address AbstractInterpreterGenerator::generate_method_entry(
                                            : // fall thru
   case Interpreter::java_util_zip_CRC32_updateByteBuffer
                                            : entry_point = ig_this->generate_CRC32_updateBytes_entry(kind); break;
+  case Interpreter::dsu_zerolocals             :  // fall thru
+  case Interpreter::dsu_zerolocals_synchronized:  // fall thru
+  case Interpreter::dsu_native                 :  // fall thru
+  case Interpreter::dsu_native_synchronized    :  // fall thru
+  case Interpreter::dsu_empty                  :  // fall thru/
+  case Interpreter::dsu_accessor               : entry_point = ig_this->generate_dsu_method_entry(kind);    break;
   default:
     fatal(err_msg("unexpected method kind: %d", kind));
     break;

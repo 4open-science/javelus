@@ -181,6 +181,7 @@ Klass::Klass() {
   AccessFlags af;
   af.set_flags(0);
   set_access_flags(af);
+  set_dsu_flags(dsuFlags_from(0));
   set_subklass(NULL);
   set_next_sibling(NULL);
   set_next_link(NULL);

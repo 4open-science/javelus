@@ -97,3 +97,10 @@ void ciFlags::print_member_flags(outputStream* st) {
 void ciFlags::print(outputStream* st) {
   st->print(" flags=%x", _flags);
 }
+
+
+// ------------------------------------------------------------------
+// ciDSUFlags::print
+void ciDSUFlags::print(outputStream* st) {
+  st->print("DSU flags=%x", _flags);
+}

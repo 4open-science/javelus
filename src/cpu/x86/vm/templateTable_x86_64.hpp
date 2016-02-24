@@ -36,6 +36,11 @@
   static void volatile_barrier(Assembler::Membar_mask_bits order_constraint);
 
   // Helpers
+  static void check_and_update_stale_object_before_accessing_member(Register obj, Register flags, Register temp, bool do_mixed_object_check=true);
+  static void check_and_update_stale_object(Register obj, Register temp);
+  static void type_narrow_check(Register obj, Register temp);
+  static void check_and_load_mixed_object(Register obj, Register temp);
+  static void explicit_stale_object_updating(Register obj);
   static void index_check(Register array, Register index);
   static void index_check_without_pop(Register array, Register index);
 

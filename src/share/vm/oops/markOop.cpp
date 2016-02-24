@@ -30,7 +30,9 @@
 PRAGMA_FORMAT_MUTE_WARNINGS_FOR_GCC
 
 void markOopDesc::print_on(outputStream* st) const {
-  if (is_marked()) {
+  if (is_mixed_object()) { 
+    st->print(" mixed(" INTPTR_FORMAT ")", value());
+  } else if (is_marked()) {
     st->print(" marked(" INTPTR_FORMAT ")", value());
   } else if (is_locked()) {
     st->print(" locked(" INTPTR_FORMAT ")->", value());

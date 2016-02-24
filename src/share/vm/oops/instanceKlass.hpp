@@ -33,6 +33,7 @@
 #include "oops/instanceOop.hpp"
 #include "oops/klassVtable.hpp"
 #include "runtime/atomic.hpp"
+#include "runtime/dsuFlags.hpp"
 #include "runtime/handles.hpp"
 #include "runtime/os.hpp"
 #include "utilities/accessFlags.hpp"
@@ -139,6 +140,10 @@ class InstanceKlass: public Klass {
   friend class VMStructs;
   friend class ClassFileParser;
   friend class CompileReplay;
+  friend class Javelus;
+  friend class DSUClass;
+  friend class DSUClassLoader;
+  friend class DSUJvmtiBuilder;
 
  protected:
   // Constructor
@@ -297,6 +302,35 @@ class InstanceKlass: public Klass {
   //     [generic signature index]
   //     ...
   Array<u2>*      _fields;
+
+  //DSU support
+  // the revision number when the ik is loaded to VM
+  int             _born_rn;
+  // the revision number when the ik is redefined by another
+  int             _dead_rn;
+  int             _copy_to_size;
+  int             _dsu_state;
+  // currently 
+  // 0 indicates nothing
+  // 1 indicates only replace klass
+  // >1 indicates full..
+  int             _transformation_level;
+
+    // previous version
+  InstanceKlass*  _previous_version;
+  InstanceKlass*  _next_version;
+  InstanceKlass*  _new_inplace_new_class;
+  InstanceKlass*  _stale_new_class;
+  // custom transformer
+  Method*         _class_transformer;
+  Array<u1>*      _class_transformer_args;
+  Method*         _object_transformer;
+  Array<u1>*      _object_transformer_args;
+  // defaut transformer
+  Array<u1>*      _matched_fields;
+  // merge inplace object to phantom object
+  // see sharedRuntime::merge_mixed_object
+  Array<u1>*      _inplace_fields;
 
   // embedded Java vtable follows here
   // embedded Java itables follows here
@@ -726,6 +760,62 @@ class InstanceKlass: public Klass {
   }
   void set_enclosing_method_indices(u2 class_index,
                                     u2 method_index);
+
+  // DSU support
+  int dsu_state()               const { return _dsu_state; }
+  void set_dsu_state(int state)       { _dsu_state = state; }
+
+  bool dsu_will_be_deleted()    const { return _dsu_state == DSUState::dsu_will_be_deleted; }
+  bool dsu_has_been_deleted()   const { return _dsu_state == DSUState::dsu_has_been_deleted; }
+  bool dsu_will_be_added()      const { return _dsu_state == DSUState::dsu_will_be_added; }
+  bool dsu_has_been_added()     const { return _dsu_state == DSUState::dsu_has_been_added; }
+  bool dsu_will_be_updated()    const { return _dsu_state >= DSUState::dsu_will_be_recompiled 
+                                                  && _dsu_state <= DSUState::dsu_will_be_deleted; }
+  bool dsu_will_be_swapped()    const { return _dsu_state == DSUState::dsu_will_be_swapped; }
+  bool dsu_has_been_swapped()   const { return _dsu_state == DSUState::dsu_has_been_swapped; }
+  bool dsu_will_be_redefined()  const { return _dsu_state == DSUState::dsu_will_be_redefined; }
+  // Note there is alread a method in the original HotSpot implementation.
+  bool dsu_has_been_redefined() const { return _dsu_state == DSUState::dsu_has_been_redefined; }
+
+  virtual bool instances_require_update(int v) { return force_update() || is_dead_at(v); }
+  bool force_update()            const { return object_transformer() != NULL; }
+  bool is_dead_at(int y)         const { return _dead_rn <= y; }
+  int  born_rn()                 const { return _born_rn; }
+  int  dead_rn()                 const { return _dead_rn; }
+  int  copy_to_size()            const { return _copy_to_size; }
+  int  transformation_level()    const { return _transformation_level; }
+  void set_born_rn(int born_rn)        { _born_rn = born_rn; }
+  void set_dead_rn(int dead_rn)        { _dead_rn = dead_rn; }
+  void set_copy_to_size(int size )     { _copy_to_size = size; }
+  void set_transformation_level(int l) { _transformation_level = l; }
+
+  bool should_only_replace_klass () const {
+    return _transformation_level == TransfomationLevel::replace_klass;
+  }
+
+  void set_previous_version(InstanceKlass* k)       { _previous_version = k; }
+  void set_next_version(InstanceKlass* k)           { _next_version = k; }
+  void set_new_inplace_new_class(InstanceKlass* k)  { _new_inplace_new_class = k; }
+  void set_stale_new_class(InstanceKlass* k)        { _stale_new_class = k; }
+  void set_class_transformer(Method* m)             { _class_transformer = m; }
+  void set_class_transformer_args(Array<u1>* a)     { _class_transformer_args = a; }
+  void set_object_transformer(Method* m)            { _object_transformer = m; }
+  void set_object_transformer_args(Array<u1>* a)    { _object_transformer_args = a; }
+  void set_matched_fields(Array<u1>* f)             { _matched_fields = f; }
+  void set_inplace_fields(Array<u1>* f)             { _inplace_fields = f; }
+
+  InstanceKlass* previous_version()        const { return _previous_version; }
+  InstanceKlass* next_version()            const { return _next_version; }
+  InstanceKlass* new_inplace_new_class()   const { return _new_inplace_new_class; }
+  InstanceKlass* stale_new_class()         const { return _stale_new_class; }
+  Method*        class_transformer()       const { return _class_transformer; }
+  Array<u1>*     class_transformer_args()  const { return _class_transformer_args; }
+  Method*        object_transformer()      const { return _object_transformer; }
+  Array<u1>*     object_transformer_args() const { return _object_transformer_args; }
+  Array<u1>*     matched_fields()          const { return _matched_fields; }
+  Array<u1>*     inplace_fields()          const { return _inplace_fields; }
+
+  static InstanceKlass* clone_instance_klass(InstanceKlass* klass, TRAPS);
 
   // jmethodID support
   static jmethodID get_jmethod_id(instanceKlassHandle ik_h,

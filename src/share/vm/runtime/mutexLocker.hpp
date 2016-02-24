@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Copyright (c) 1997, 2015, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
@@ -106,6 +106,10 @@ extern Mutex*   EvacFailureStack_lock;           // guards the evac failure scan
 extern Mutex*   Compile_lock;                    // a lock held when Compilation is updating code (used to block CodeCache traversal, CHA updates, etc)
 extern Monitor* MethodCompileQueue_lock;         // a lock held when method compilations are enqueued, dequeued
 extern Monitor* CompileThread_lock;              // a lock held by compile threads during compilation system initialization
+extern Monitor* DSUThread_lock;                  // a lock held by the DSU thread for threaded activities
+extern Monitor* DSURequest_lock;                 // a lock held by the DSU thread for requests manipulation
+extern Monitor* DSUEagerUpdate_lock;             // a lock held by eager updates.
+extern Mutex*   DSUReflection_lock;              // a lock held by weak reflection.
 extern Mutex*   CompileTaskAlloc_lock;           // a lock held when CompileTasks are allocated
 extern Mutex*   CompileStatistics_lock;          // a lock held when updating compilation statistics
 extern Mutex*   MultiArray_lock;                 // a lock used to guard allocation of multi-dim arrays

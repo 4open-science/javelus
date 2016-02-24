@@ -186,7 +186,11 @@ void ObjectSynchronizer::fast_exit(oop object, BasicLock* lock, TRAPS) {
   assert(!object->mark()->has_bias_pattern(), "should not see bias pattern here");
   // if displaced header is null, the previous enter is recursive enter, no-op
   markOop dhw = lock->displaced_header();
-  markOop mark ;
+  markOop mark = object->mark();
+  if (mark->is_mixed_object()) {
+    object = (oop) mark->decode_phantom_object_pointer();
+    assert(!object->mark()->has_bias_pattern(), "should not see bias pattern here");
+  }
   if (dhw == NULL) {
      // Recursive stack-lock.
      // Diagnostics -- Could be: stack-locked, inflating, inflated.
@@ -225,6 +229,10 @@ void ObjectSynchronizer::fast_exit(oop object, BasicLock* lock, TRAPS) {
 // failed in the interpreter/compiler code.
 void ObjectSynchronizer::slow_enter(Handle obj, BasicLock* lock, TRAPS) {
   markOop mark = obj->mark();
+  if (mark->is_mixed_object()) {
+    obj = Handle(THREAD, (oop)mark->decode_phantom_object_pointer());
+    mark = obj->mark();
+  }
   assert(!mark->has_bias_pattern(), "should not see bias pattern here");
 
   if (mark->is_neutral()) {
@@ -413,6 +421,10 @@ void ObjectSynchronizer::notify(Handle obj, TRAPS) {
   }
 
   markOop mark = obj->mark();
+  if (mark->is_mixed_object()) {
+    obj = Handle(THREAD, (oop)mark->decode_phantom_object_pointer());
+    mark = obj->mark();
+  }
   if (mark->has_locker() && THREAD->is_lock_owned((address)mark->locker())) {
     return;
   }
@@ -427,6 +439,10 @@ void ObjectSynchronizer::notifyall(Handle obj, TRAPS) {
   }
 
   markOop mark = obj->mark();
+  if (mark->is_mixed_object()) {
+    obj = Handle(THREAD, (oop)mark->decode_phantom_object_pointer());
+    mark = obj->mark();
+  }
   if (mark->has_locker() && THREAD->is_lock_owned((address)mark->locker())) {
     return;
   }
@@ -635,6 +651,10 @@ intptr_t ObjectSynchronizer::FastHashCode (Thread * Self, oop obj) {
   markOop temp, test;
   intptr_t hash;
   markOop mark = ReadStableMark (obj);
+  if (mark->is_mixed_object()) {
+    obj = (oop) mark->decode_phantom_object_pointer();
+    mark = ReadStableMark (obj);
+  }
 
   // object should remain ineligible for biased locking
   assert (!mark->has_bias_pattern(), "invariant") ;
@@ -723,7 +743,10 @@ bool ObjectSynchronizer::current_thread_holds_lock(JavaThread* thread,
   oop obj = h_obj();
 
   markOop mark = ReadStableMark (obj) ;
-
+  if (mark->is_mixed_object()) {
+    obj = (oop) mark->decode_phantom_object_pointer();
+    mark = ReadStableMark(obj);
+  }
   // Uncontended case, header points to stack
   if (mark->has_locker()) {
     return thread->is_lock_owned((address)mark->locker());
@@ -762,7 +785,10 @@ ObjectSynchronizer::LockOwnership ObjectSynchronizer::query_lock_ownership
   assert(self == JavaThread::current(), "Can only be called on current thread");
   oop obj = h_obj();
   markOop mark = ReadStableMark (obj) ;
-
+  if (mark->is_mixed_object()) {
+    obj = (oop) mark->decode_phantom_object_pointer();
+    mark = ReadStableMark(obj);
+  }
   // CASE: stack-locked.  Mark points to a BasicLock on the owner's stack.
   if (mark->has_locker()) {
     return self->is_lock_owned((address)mark->locker()) ?
@@ -799,7 +825,10 @@ JavaThread* ObjectSynchronizer::get_lock_owner(Handle h_obj, bool doLock) {
   address owner = NULL;
 
   markOop mark = ReadStableMark (obj) ;
-
+  if (mark->is_mixed_object()) {
+    obj = (oop) mark->decode_phantom_object_pointer();
+    mark = ReadStableMark(obj);
+  }
   // Uncontended case, header points to stack
   if (mark->has_locker()) {
     owner = (address) mark->locker();
@@ -1178,6 +1207,10 @@ void ObjectSynchronizer::omFlush (Thread * Self) {
 // Fast path code shared by multiple functions
 ObjectMonitor* ObjectSynchronizer::inflate_helper(oop obj) {
   markOop mark = obj->mark();
+  if (mark->is_mixed_object()) {
+    obj = (oop) mark->decode_phantom_object_pointer();
+    mark = obj->mark();
+  }
   if (mark->has_monitor()) {
     assert(ObjectSynchronizer::verify_objmon_isinpool(mark->monitor()), "monitor is invalid");
     assert(mark->monitor()->header()->is_neutral(), "monitor must record a good object header");
@@ -1207,6 +1240,13 @@ ObjectMonitor * ATTR ObjectSynchronizer::inflate (Thread * Self, oop object) {
       // *  INFLATING    - busy wait for conversion to complete
       // *  Neutral      - aggressively inflate the object.
       // *  BIASED       - Illegal.  We should never see this
+      // *  Mixed object - a mixed object
+
+      // CASE: mixed object
+      if (mark->is_mixed_object()) {
+        object = (oop) mark->decode_phantom_object_pointer();
+        continue;
+      }
 
       // CASE: inflated
       if (mark->has_monitor()) {
@@ -1424,6 +1464,9 @@ enum ManifestConstants {
 bool ObjectSynchronizer::deflate_monitor(ObjectMonitor* mid, oop obj,
                                          ObjectMonitor** FreeHeadp, ObjectMonitor** FreeTailp) {
   bool deflated;
+  if (obj->mark()->is_mixed_object()) {
+    obj = oop(obj->mark()->decode_phantom_object_pointer());
+  }
   // Normal case ... The monitor is associated with obj.
   guarantee (obj->mark() == markOopDesc::encode(mid), "invariant") ;
   guarantee (mid == obj->mark()->monitor(), "invariant");

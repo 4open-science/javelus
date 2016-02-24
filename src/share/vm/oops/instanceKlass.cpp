@@ -172,6 +172,33 @@ HS_DTRACE_PROBE_DECL5(hotspot, class__initialization__end,
 
 volatile int InstanceKlass::_total_instanceKlass_count = 0;
 
+InstanceKlass* InstanceKlass::clone_instance_klass(InstanceKlass* klass, TRAPS) {
+  int vtable_len = klass->vtable_length();
+  int itable_len = klass->itable_length();
+  int static_field_size = klass->static_field_size();
+  unsigned int nonstatic_oop_map_count = klass->nonstatic_oop_map_count();
+  InstanceKlass* newik = allocate_instance_klass(
+      klass->class_loader_data(),
+      vtable_len,
+      itable_len,
+      static_field_size,
+      nonstatic_oop_map_count,
+      klass->reference_type(),
+      klass->access_flags(),
+      klass->name(),
+      klass->super(),
+      klass->is_anonymous(),
+      CHECK_NULL);
+
+  const int nonstatic_oop_map_size =
+      InstanceKlass::nonstatic_oop_map_size(nonstatic_oop_map_count);
+
+  memcpy(newik, klass, klass->size() * (HeapWordSize));
+
+  return newik;
+}
+
+
 InstanceKlass* InstanceKlass::allocate_instance_klass(
                                               ClassLoaderData* loader_data,
                                               int vtable_len,
@@ -268,6 +295,7 @@ InstanceKlass::InstanceKlass(int vtable_len,
   set_static_field_size(static_field_size);
   set_nonstatic_oop_map_size(nonstatic_oop_map_size);
   set_access_flags(access_flags);
+  set_dsu_flags(dsuFlags_from(0));
   _misc_flags = 0;  // initialize to zero
   set_is_anonymous(is_anonymous);
   assert(size() == iksize, "wrong size for object");
@@ -311,6 +339,23 @@ InstanceKlass::InstanceKlass(int vtable_len,
   set_minor_version(0);
   set_major_version(0);
   NOT_PRODUCT(_verify_count = 0;)
+
+  // DSU support
+  set_born_rn(0);
+  set_dead_rn(0);
+  set_copy_to_size(0);
+  set_dsu_state(0);
+  set_previous_version(NULL);
+  set_next_version(NULL);
+  set_new_inplace_new_class(NULL);
+  set_stale_new_class(NULL);
+  set_class_transformer(NULL);
+  set_class_transformer_args(NULL);
+  set_object_transformer(NULL);
+  set_object_transformer_args(NULL);
+  set_matched_fields(NULL);
+  set_inplace_fields(NULL);
+  set_transformation_level(0);
 
   // initialize the non-header words to zero
   intptr_t* p = (intptr_t*)this;
@@ -2183,6 +2228,7 @@ template <class T> void assert_nothing(T *p) {}
 
 void InstanceKlass::oop_follow_contents(oop obj) {
   assert(obj != NULL, "can't follow the content of NULL object");
+  assert(!obj->mark()->is_mixed_object(), "no follow of inplace object");
   MarkSweep::follow_klass(obj->klass());
   InstanceKlass_OOP_MAP_ITERATE( \
     obj, \
@@ -2194,6 +2240,7 @@ void InstanceKlass::oop_follow_contents(oop obj) {
 void InstanceKlass::oop_follow_contents(ParCompactionManager* cm,
                                         oop obj) {
   assert(obj != NULL, "can't follow the content of NULL object");
+  assert(!obj->mark()->is_mixed_object(), "no follow of inplace object");
   PSParallelCompact::follow_klass(cm, obj->klass());
   // Only mark the header and let the scan of the meta-data mark
   // everything else.
@@ -2272,6 +2319,9 @@ ALL_OOP_OOP_ITERATE_CLOSURES_2(InstanceKlass_OOP_OOP_ITERATE_BACKWARDS_DEFN)
 
 int InstanceKlass::oop_adjust_pointers(oop obj) {
   int size = size_helper();
+  if (obj->mark()->is_mixed_object()) {
+    return size;
+  }
   InstanceKlass_OOP_MAP_ITERATE( \
     obj, \
     MarkSweep::adjust_pointer(p), \
@@ -2281,6 +2331,7 @@ int InstanceKlass::oop_adjust_pointers(oop obj) {
 
 #if INCLUDE_ALL_GCS
 void InstanceKlass::oop_push_contents(PSPromotionManager* pm, oop obj) {
+  assert(!obj->mark()->is_mixed_object(), "no push of inplace object");
   InstanceKlass_OOP_MAP_REVERSE_ITERATE( \
     obj, \
     if (PSScavenge::should_scavenge(p)) { \
@@ -2291,6 +2342,9 @@ void InstanceKlass::oop_push_contents(PSPromotionManager* pm, oop obj) {
 
 int InstanceKlass::oop_update_pointers(ParCompactionManager* cm, oop obj) {
   int size = size_helper();
+  if (obj->mark()->is_mixed_object()) {
+    return size;
+  }
   InstanceKlass_OOP_MAP_ITERATE( \
     obj, \
     PSParallelCompact::adjust_pointer(p), \
@@ -3021,6 +3075,7 @@ void InstanceKlass::print_on(outputStream* st) const {
   st->print(BULLET"klass size:        %d", size());                               st->cr();
   st->print(BULLET"access:            "); access_flags().print_on(st);            st->cr();
   st->print(BULLET"state:             "); st->print_cr("%s", state_names[_init_state]);
+  st->print(BULLET"life:              [%d,%d)", born_rn(), dead_rn());            st->cr();
   st->print(BULLET"name:              "); name()->print_value_on(st);             st->cr();
   st->print(BULLET"super:             "); super()->print_value_on_maybe_null(st); st->cr();
   st->print(BULLET"sub:               ");
@@ -3143,6 +3198,13 @@ void FieldPrinter::do_field(fieldDescriptor* fd) {
    if (_obj == NULL) {
      fd->print_on(_st);
      _st->cr();
+   } else if (_obj->mark()->is_mixed_object()) {
+     if (fd->dsu_flags().needs_mixed_object_check()) {
+       fd->print_on_for(_st, oop(_obj->mark()->decode_phantom_object_pointer()));
+     } else {
+       fd->print_on_for(_st, _obj);
+     }
+     _st->cr();
    } else {
      fd->print_on_for(_st, _obj);
      _st->cr();
@@ -3151,8 +3213,14 @@ void FieldPrinter::do_field(fieldDescriptor* fd) {
 
 
 void InstanceKlass::oop_print_on(oop obj, outputStream* st) {
-  Klass::oop_print_on(obj, st);
-
+  if (obj->mark()->is_mixed_object()) {
+    st->print_cr(">>> begin phantom object <<<");
+    InstanceKlass::oop_print_on(oop(obj->mark()->decode_phantom_object_pointer()), st);
+    st->print_cr(">>> end phantom object <<<");
+    Klass::oop_print_on(obj, st);
+  } else {
+    Klass::oop_print_on(obj, st);
+  }
   if (this == SystemDictionary::String_klass()) {
     typeArrayOop value  = java_lang_String::value(obj);
     juint        offset = java_lang_String::offset(obj);
@@ -3445,6 +3513,10 @@ void InstanceKlass::verify_on(outputStream* st) {
 
 void InstanceKlass::oop_verify_on(oop obj, outputStream* st) {
   Klass::oop_verify_on(obj, st);
+  if (InstanceKlass::cast(obj->klass())->is_stale_class()
+    || InstanceKlass::cast(obj->klass())->is_inplace_new_class()) {
+    return;
+  }
   VerifyFieldClosure blk;
   obj->oop_iterate_no_header(&blk);
 }

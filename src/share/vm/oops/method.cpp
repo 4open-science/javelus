@@ -83,6 +83,7 @@ Method::Method(ConstMethod* xconst, AccessFlags access_flags, int size) {
   No_Safepoint_Verifier no_safepoint;
   set_constMethod(xconst);
   set_access_flags(access_flags);
+  set_dsu_flags(dsuFlags_from(0));
   set_method_size(size);
 #ifdef CC_INTERP
   set_result_index(T_VOID);
@@ -875,6 +876,33 @@ void Method::link_method(methodHandle h_method, TRAPS) {
 
   // Setup interpreter entrypoint
   assert(this == h_method(), "wrong h_method()" );
+  address entry = Interpreter::entry_for_method(h_method);
+  assert(entry != NULL, "interpreter entry must be non-null");
+  // Sets both _i2i_entry and _from_interpreted_entry
+  set_interpreter_entry(entry);
+
+  // Don't overwrite already registered native entries.
+  if (is_native() && !has_native_function()) {
+    set_native_function(
+      SharedRuntime::native_method_throw_unsatisfied_link_error_entry(),
+      !native_bind_event_is_interesting);
+  }
+
+  // Setup compiler entrypoint.  This is made eagerly, so we do not need
+  // special handling of vtables.  An alternative is to make adapters more
+  // lazily by calling make_adapter() from from_compiled_entry() for the
+  // normal calls.  For vtable calls life gets more complicated.  When a
+  // call-site goes mega-morphic we need adapters in all methods which can be
+  // called from the vtable.  We need adapters on such methods that get loaded
+  // later.  Ditto for mega-morphic itable calls.  If this proves to be a
+  // problem we'll make these lazily later.
+  (void) make_adapters(h_method, CHECK);
+
+  // ONLY USE the h_method now as make_adapter may have blocked
+
+}
+
+void Method::link_method_with_dsu_check(methodHandle h_method, TRAPS) {
   address entry = Interpreter::entry_for_method(h_method);
   assert(entry != NULL, "interpreter entry must be non-null");
   // Sets both _i2i_entry and _from_interpreted_entry

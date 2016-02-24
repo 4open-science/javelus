@@ -38,6 +38,8 @@ class JNIHandles : AllStatic {
  private:
   static JNIHandleBlock* _global_handles;             // First global handle block
   static JNIHandleBlock* _weak_global_handles;        // First weak global handle block
+  static JNIHandleBlock* _weak_reflection_handles;    // First weak reflection handle block
+  static int             _weak_reflection_modification_number;
   static oop _deleted_handle;                         // Sentinel marking deleted handles
 
  public:
@@ -62,6 +64,10 @@ class JNIHandles : AllStatic {
   static jobject make_weak_global(Handle obj);
   static void destroy_weak_global(jobject handle);
 
+  // Weak reflection handles
+  static jobject make_weak_reflection(Handle obj);
+  static void destroy_weak_reflection(jobject handle);
+
   // Sentinel marking deleted handles in block. Note that we cannot store NULL as
   // the sentinel, since clearing weak global JNI refs are done by storing NULL in
   // the handle. The handle may not be reused before destroy_weak_global is called.
@@ -78,6 +84,7 @@ class JNIHandles : AllStatic {
   static bool is_frame_handle(JavaThread* thr, jobject obj);
   static bool is_global_handle(jobject handle);
   static bool is_weak_global_handle(jobject handle);
+  static bool is_weak_reflection_handle(jobject handle);
   static long global_handle_memory_usage();
   static long weak_global_handle_memory_usage();
 
@@ -86,6 +93,8 @@ class JNIHandles : AllStatic {
   static void oops_do(OopClosure* f);
   // Traversal of weak global handles. Unreachable oops are cleared.
   static void weak_oops_do(BoolObjectClosure* is_alive, OopClosure* f);
+  static int  collect_changed_reflections(OopClosure* f);
+  static int  weak_reflection_modification_number();
 };
 
 
@@ -154,6 +163,7 @@ class JNIHandleBlock : public CHeapObj<mtInternal> {
   void oops_do(OopClosure* f);
   // Traversal of weak handles. Unreachable oops are cleared.
   void weak_oops_do(BoolObjectClosure* is_alive, OopClosure* f);
+  void weak_oops_do_unsafe(BoolObjectClosure* is_alive, OopClosure* f);
 
   // Checked JNI support
   void set_planned_capacity(size_t planned_capacity) { _planned_capacity = planned_capacity; }

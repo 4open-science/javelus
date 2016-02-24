@@ -115,14 +115,20 @@ class TemplateInterpreter: public AbstractInterpreter {
   static EntryPoint _trace_code;
 #endif // !PRODUCT
   static EntryPoint _return_entry[number_of_return_entries];    // entry points to return to from a call
+  static EntryPoint _return_with_barrier_entry[number_of_return_entries];    // entry points to return to from a call
   static EntryPoint _earlyret_entry;                            // entry point to return early from a call
   static EntryPoint _deopt_entry[number_of_deopt_entries];      // entry points to return to from a deoptimization
+  static EntryPoint _deopt_with_barrier_entry[number_of_deopt_entries];      // entry points to return to from a deoptimization
   static EntryPoint _continuation_entry;
   static EntryPoint _safept_entry;
 
   static address _invoke_return_entry[number_of_return_addrs];           // for invokestatic, invokespecial, invokevirtual return entries
   static address _invokeinterface_return_entry[number_of_return_addrs];  // for invokeinterface return entries
   static address _invokedynamic_return_entry[number_of_return_addrs];    // for invokedynamic return entries
+
+  static address _invoke_return_with_barrier_entry[number_of_return_addrs];           // for invokestatic, invokespecial, invokevirtual return entries
+  static address _invokeinterface_return_with_barrier_entry[number_of_return_addrs];  // for invokeinterface return entries
+  static address _invokedynamic_return_with_barrier_entry[number_of_return_addrs];    // for invokedynamic return entries
 
   static DispatchTable _active_table;                           // the active    dispatch table (used by the interpreter for dispatch)
   static DispatchTable _normal_table;                           // the normal    dispatch table (used to set the active table in normal mode)
@@ -167,10 +173,16 @@ class TemplateInterpreter: public AbstractInterpreter {
   static address*   invokedynamic_return_entry_table()          { return _invokedynamic_return_entry; }
   static int        TosState_as_index(TosState state);
 
+  static address*   invoke_return_with_barrier_entry_table()                 { return _invoke_return_with_barrier_entry; }
+  static address*   invokeinterface_return_with_barrier_entry_table()        { return _invokeinterface_return_with_barrier_entry; }
+  static address*   invokedynamic_return_with_barrier_entry_table()          { return _invokedynamic_return_with_barrier_entry; }
+
   static address* invoke_return_entry_table_for(Bytecodes::Code code);
 
   static address deopt_entry(TosState state, int length);
+  static address deopt_with_barrier_entry(TosState state, int length);
   static address return_entry(TosState state, int length, Bytecodes::Code code);
+  static address return_with_barrier_entry(TosState state, int length, Bytecodes::Code code);
 
   // Safepoint support
   static void       notice_safepoints();                        // stops the thread when reaching a safepoint
@@ -182,10 +194,15 @@ class TemplateInterpreter: public AbstractInterpreter {
                                             address bcp,
                                             int callee_parameters,
                                             bool is_top_frame);
+  static address deopt_continue_after_with_barrier_entry(Method* method,
+                                            address bcp,
+                                            int callee_parameters,
+                                            bool is_top_frame);
   // Deoptimization should reexecute this bytecode
   static bool    bytecode_should_reexecute(Bytecodes::Code code);
   // Compute the address for reexecution
   static address deopt_reexecute_entry(Method* method, address bcp);
+  static address deopt_reexecute_with_barrier_entry(Method* method, address bcp);
 
 #ifdef TARGET_ARCH_x86
 # include "templateInterpreter_x86.hpp"

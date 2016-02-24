@@ -1421,7 +1421,7 @@ const TypePtr *Compile::flatten_alias_type( const TypePtr *tj ) const {
     // During the 2nd round of IterGVN, NotNull castings are removed.
     // Make sure the Bottom and NotNull variants alias the same.
     // Also, make sure exact and non-exact variants alias the same.
-    if (ptr == TypePtr::NotNull || ta->klass_is_exact() || ta->speculative() != NULL) {
+    if (ptr == TypePtr::NotNull || ptr == TypePtr::Valid || ta->klass_is_exact() || ta->speculative() != NULL) {
       tj = ta = TypeAryPtr::make(TypePtr::BotPTR,ta->ary(),ta->klass(),false,offset);
     }
   }
@@ -1440,7 +1440,7 @@ const TypePtr *Compile::flatten_alias_type( const TypePtr *tj ) const {
       }
     } else if( is_known_inst ) {
       tj = to; // Keep NotNull and klass_is_exact for instance type
-    } else if( ptr == TypePtr::NotNull || to->klass_is_exact() ) {
+    } else if( ptr == TypePtr::NotNull || ptr == TypePtr::Valid || to->klass_is_exact() ) {
       // During the 2nd round of IterGVN, NotNull castings are removed.
       // Make sure the Bottom and NotNull variants alias the same.
       // Also, make sure exact and non-exact variants alias the same.

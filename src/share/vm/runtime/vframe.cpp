@@ -211,6 +211,7 @@ void javaVFrame::print_lock_info_on(outputStream* st, int frame_count) {
         const char *lock_state = "locked"; // assume we have the monitor locked
         if (!found_first_monitor && frame_count == 0) {
           mark = monitor->owner()->mark();
+          assert(!mark->is_mixed_object(), "only phantom object can be stored in the monitor");
           if (mark->has_monitor() &&
               ( // we have marked ourself as pending on this monitor
                 mark->monitor() == thread()->current_pending_monitor() ||

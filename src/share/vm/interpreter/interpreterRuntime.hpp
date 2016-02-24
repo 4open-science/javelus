@@ -132,6 +132,11 @@ class InterpreterRuntime: AllStatic {
   static void    resolve_invokehandle (JavaThread* thread);
   static void    resolve_invokedynamic(JavaThread* thread);
 
+  // DSU support
+  static void    invoke_return_barrier(JavaThread* thread);
+  static void    update_stale_object(JavaThread* thread, oopDesc* obj);
+  static void    update_stale_object_and_reresolve_method(JavaThread* thread, oopDesc* obj);
+
   // Breakpoints
   static void _breakpoint(JavaThread* thread, Method* method, address bcp);
   static Bytecodes::Code get_original_bytecode_at(JavaThread* thread, Method* method, address bcp);

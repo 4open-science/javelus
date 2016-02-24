@@ -1384,6 +1384,32 @@ Node* GraphKit::cast_not_null(Node* obj, bool do_replace_in_map) {
   return cast;                  // Return casted value
 }
 
+//------------------------------cast_not_invalid----------------------------------
+// Cast obj to not-null on this path
+Node* GraphKit::cast_valid(Node* obj, bool do_replace_in_map) {
+  const Type *t = _gvn.type(obj);
+  if (!t->isa_instptr()) {
+    return obj;
+  }
+  const TypeInstPtr * tip = t->is_instptr();
+  //XXX Not null is invalid
+  const Type *t_valid = t->join(TypePtr::VALID_PTR);
+  // Object is already valid?
+  if( t == t_valid ) return obj;
+
+  Node *cast = new (C) CastPPNode(obj, t_valid);
+  cast->init_req(0, control());
+  cast = _gvn.transform( cast );
+
+  // Scan for instances of 'obj' in the current JVM mapping.
+  // These instances are known to be not-null after the test.
+  if (do_replace_in_map)
+    replace_in_map(obj, cast);
+
+  return cast;                  // Return casted value
+}
+
+
 
 //--------------------------replace_in_map-------------------------------------
 void GraphKit::replace_in_map(Node* old, Node* neww) {
@@ -2939,7 +2965,7 @@ Node* GraphKit::gen_instanceof(Node* obj, Node* superklass, bool safe_for_replac
 // the control edge for the cast failure.  Otherwise, an appropriate
 // uncommon trap or exception is thrown.
 Node* GraphKit::gen_checkcast(Node *obj, Node* superklass,
-                              Node* *failure_control) {
+                              Node* *failure_control, bool check_stale_object) {
   kill_dead_locals();           // Benefit all the uncommon traps
   const TypeKlassPtr *tk = _gvn.type(superklass)->is_klassptr();
   const Type *toop = TypeOopPtr::make_from_klass(tk->klass());
@@ -2990,6 +3016,10 @@ Node* GraphKit::gen_checkcast(Node *obj, Node* superklass,
   // Null check; get casted pointer; set region slot 3
   Node* null_ctl = top();
   Node* not_null_obj = null_check_oop(obj, &null_ctl, never_see_null, safe_for_replace);
+
+  if (check_stale_object) {
+    not_null_obj = do_stale_object_check(not_null_obj, false);
+  }
 
   // If not_null_obj is dead, only null-path is taken
   if (stopped()) {              // Doing instance-of on a NULL?

@@ -186,6 +186,9 @@ class ConstantPoolCacheEntry VALUE_OBJ_CLASS_SPEC {
     is_final_shift             = 22,  // (f) is the field or method final?
     is_volatile_shift          = 21,  // (v) is the field volatile?
     is_vfinal_shift            = 20,  // (vf) did the call resolve to a final method?
+    stale_object_check_shift   = 19,
+    type_narrow_check_shift    = 18,
+    mixed_object_check_shift   = 17,
     // low order bits give field index (for FieldInfo) or method parameter size:
     field_index_bits           = 16,
     field_index_mask           = right_n_bits(field_index_bits),
@@ -221,7 +224,10 @@ class ConstantPoolCacheEntry VALUE_OBJ_CLASS_SPEC {
     TosState        field_type,                  // the (machine) field type
     bool            is_final,                     // the field is final
     bool            is_volatile,                 // the field is volatile
-    Klass*          root_klass                   // needed by the GC to dirty the klass
+    Klass*          root_klass,                   // needed by the GC to dirty the klass
+    bool            mixed_object_check,
+    bool            type_narrow_check,
+    bool            stale_object_check
   );
 
  private:
@@ -362,6 +368,10 @@ class ConstantPoolCacheEntry VALUE_OBJ_CLASS_SPEC {
   TosState flag_state() const                    { assert((uint)number_of_states <= (uint)tos_state_mask+1, "");
                                                    return (TosState)((_flags >> tos_state_shift) & tos_state_mask); }
 
+  // DSU support
+  void reset_entry();
+  bool adjust_entry_klass(Klass* old_holder, Klass* new_holder);
+
   // Code generation support
   static WordSize size()                         { return in_WordSize(sizeof(ConstantPoolCacheEntry) / HeapWordSize); }
   static ByteSize size_in_bytes()                { return in_ByteSize(sizeof(ConstantPoolCacheEntry)); }
@@ -452,6 +462,11 @@ class ConstantPoolCache: public MetaspaceObj {
   friend class ConstantPoolCacheEntry;
 
  public:
+
+  // DSU support
+  void reset_all_entries();
+  void copy_method_entry_from(int to_index, ConstantPoolCache* from_cache, int from_index);
+
   // Accessors
   void set_constant_pool(ConstantPool* pool)   { _constant_pool = pool; }
   ConstantPool* constant_pool() const          { return _constant_pool; }

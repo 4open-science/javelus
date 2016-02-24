@@ -1408,7 +1408,7 @@ FreeChunk* CompactibleFreeListSpace::allocateScratch(size_t size) {
 }
 
 oop CompactibleFreeListSpace::promote(oop obj, size_t obj_size) {
-  assert(obj_size == (size_t)obj->size(), "bad obj_size passed in");
+  assert(obj_size == (size_t)obj->size() || obj_size == (size_t)obj->copy_to_size(), "bad obj_size passed in");
   assert_locked();
 
   // if we are tracking promotions, then first ensure space for

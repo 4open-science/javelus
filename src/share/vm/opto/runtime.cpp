@@ -56,6 +56,7 @@
 #include "opto/mulnode.hpp"
 #include "opto/runtime.hpp"
 #include "opto/subnode.hpp"
+#include "runtime/dsu.hpp"
 #include "runtime/fprofiler.hpp"
 #include "runtime/handles.inline.hpp"
 #include "runtime/interfaceSupport.hpp"
@@ -96,6 +97,7 @@
 
 // Compiled code entry points
 address OptoRuntime::_new_instance_Java                           = NULL;
+address OptoRuntime::_update_stale_object_Java                    = NULL;
 address OptoRuntime::_new_array_Java                              = NULL;
 address OptoRuntime::_new_array_nozero_Java                       = NULL;
 address OptoRuntime::_multianewarray2_Java                        = NULL;
@@ -145,6 +147,7 @@ bool OptoRuntime::generate(ciEnv* env) {
   //   variable/name                       type-function-gen              , runtime method                  ,fncy_jp, tls,save_args,retpc
   // -------------------------------------------------------------------------------------------------------------------------------
   gen(env, _new_instance_Java              , new_instance_Type            , new_instance_C                  ,    0 , true , false, false);
+  gen(env, _update_stale_object_Java       , update_stale_object_Type     , update_stale_object_C           ,    0 , true , false, false);
   gen(env, _new_array_Java                 , new_array_Type               , new_array_C                     ,    0 , true , false, false);
   gen(env, _new_array_nozero_Java          , new_array_Type               , new_array_nozero_C              ,    0 , true , false, false);
   gen(env, _multianewarray2_Java           , multianewarray2_Type         , multianewarray2_C               ,    0 , true , false, false);
@@ -447,6 +450,29 @@ const TypeFunc *OptoRuntime::new_instance_Type() {
   // create result type (range)
   fields = TypeTuple::fields(1);
   fields[TypeFunc::Parms+0] = TypeRawPtr::NOTNULL; // Returned oop
+
+  const TypeTuple *range = TypeTuple::make(TypeFunc::Parms+1, fields);
+
+  return TypeFunc::make(domain, range);
+}
+
+JRT_BLOCK_ENTRY(void, OptoRuntime::update_stale_object_C(oopDesc* recv, JavaThread* thread))
+  JRT_BLOCK;
+  Handle obj (thread, recv);
+  Javelus::transform_object_common(obj, thread);
+  thread->set_vm_result(obj());
+  JRT_BLOCK_END;
+JRT_END
+
+const TypeFunc *OptoRuntime::update_stale_object_Type() {
+  // create input type (domain)
+  const Type **fields = TypeTuple::fields(1);
+  fields[TypeFunc::Parms+0] = TypeInstPtr::NOTNULL; // object to be updated
+  const TypeTuple *domain = TypeTuple::make(TypeFunc::Parms+1, fields);
+
+  // create result type (range)
+  fields = TypeTuple::fields(1);
+  fields[TypeFunc::Parms+0] = TypeInstPtr::VALID; // Returned oop
 
   const TypeTuple *range = TypeTuple::make(TypeFunc::Parms+1, fields);
 

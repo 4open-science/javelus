@@ -972,6 +972,9 @@ void TemplateTable::aastore() {
   __ testptr(rax, rax);
   __ jcc(Assembler::zero, is_null);
 
+  check_and_update_stale_object(rax, rbx);
+  type_narrow_check(rax, rbx);
+
   // Move subklass into rbx
   __ load_klass(rbx, rax);
   // Move superklass into rax
@@ -2283,8 +2286,10 @@ void TemplateTable::getfield_or_static(int byte_no, bool is_static) {
   load_field_cp_cache_entry(obj, cache, index, off, flags, is_static);
 
   if (!is_static) {
-    // obj is on the stack
     pop_and_check_object(obj);
+    // we can use r14 as temp and restore it after check
+    check_and_update_stale_object_before_accessing_member(obj, flags, r14);
+    __ restore_locals();
   }
 
   const Address field(obj, off, Address::times_1);
@@ -2489,6 +2494,10 @@ void TemplateTable::putfield_or_static(int byte_no, bool is_static) {
   // volatile_barrier(Assembler::Membar_mask_bits(Assembler::LoadStore |
   //                                              Assembler::StoreStore));
 
+  if (!is_static) {
+    __ movl(r14, flags); // r14 points to locals
+  }
+
   Label notVolatile, Done;
   __ movl(rdx, flags);
   __ shrl(rdx, ConstantPoolCacheEntry::is_volatile_shift);
@@ -2509,7 +2518,13 @@ void TemplateTable::putfield_or_static(int byte_no, bool is_static) {
   // btos
   {
     __ pop(btos);
-    if (!is_static) pop_and_check_object(obj);
+    if (!is_static) {
+      pop_and_check_object(obj);
+      __ push(rdx);
+      check_and_update_stale_object_before_accessing_member(obj, r14, rdx);
+      __ restore_locals();
+      __ pop(rdx);
+    }
     __ movb(field, rax);
     if (!is_static) {
       patch_bytecode(Bytecodes::_fast_bputfield, bc, rbx, true, byte_no);
@@ -2524,7 +2539,13 @@ void TemplateTable::putfield_or_static(int byte_no, bool is_static) {
   // atos
   {
     __ pop(atos);
-    if (!is_static) pop_and_check_object(obj);
+    if (!is_static) {
+      pop_and_check_object(obj);
+      __ push(rdx);
+      check_and_update_stale_object_before_accessing_member(obj, r14, rdx);
+      __ restore_locals();
+      __ pop(rdx);
+    }
     // Store into the field
     do_oop_store(_masm, field, rax, _bs->kind(), false);
     if (!is_static) {
@@ -2540,7 +2561,13 @@ void TemplateTable::putfield_or_static(int byte_no, bool is_static) {
   // itos
   {
     __ pop(itos);
-    if (!is_static) pop_and_check_object(obj);
+    if (!is_static) {
+      pop_and_check_object(obj);
+      __ push(rdx);
+      check_and_update_stale_object_before_accessing_member(obj, r14, rdx);
+      __ restore_locals();
+      __ pop(rdx);
+    }
     __ movl(field, rax);
     if (!is_static) {
       patch_bytecode(Bytecodes::_fast_iputfield, bc, rbx, true, byte_no);
@@ -2555,7 +2582,13 @@ void TemplateTable::putfield_or_static(int byte_no, bool is_static) {
   // ctos
   {
     __ pop(ctos);
-    if (!is_static) pop_and_check_object(obj);
+    if (!is_static) {
+      pop_and_check_object(obj);
+      __ push(rdx);
+      check_and_update_stale_object_before_accessing_member(obj, r14, rdx);
+      __ restore_locals();
+      __ pop(rdx);
+    }
     __ movw(field, rax);
     if (!is_static) {
       patch_bytecode(Bytecodes::_fast_cputfield, bc, rbx, true, byte_no);
@@ -2570,7 +2603,13 @@ void TemplateTable::putfield_or_static(int byte_no, bool is_static) {
   // stos
   {
     __ pop(stos);
-    if (!is_static) pop_and_check_object(obj);
+    if (!is_static) {
+      pop_and_check_object(obj);
+      __ push(rdx);
+      check_and_update_stale_object_before_accessing_member(obj, r14, rdx);
+      __ restore_locals();
+      __ pop(rdx);
+    }
     __ movw(field, rax);
     if (!is_static) {
       patch_bytecode(Bytecodes::_fast_sputfield, bc, rbx, true, byte_no);
@@ -2585,7 +2624,13 @@ void TemplateTable::putfield_or_static(int byte_no, bool is_static) {
   // ltos
   {
     __ pop(ltos);
-    if (!is_static) pop_and_check_object(obj);
+    if (!is_static) {
+      pop_and_check_object(obj);
+      __ push(rdx);
+      check_and_update_stale_object_before_accessing_member(obj, r14, rdx);
+      __ restore_locals();
+      __ pop(rdx);
+    }
     __ movq(field, rax);
     if (!is_static) {
       patch_bytecode(Bytecodes::_fast_lputfield, bc, rbx, true, byte_no);
@@ -2600,7 +2645,13 @@ void TemplateTable::putfield_or_static(int byte_no, bool is_static) {
   // ftos
   {
     __ pop(ftos);
-    if (!is_static) pop_and_check_object(obj);
+    if (!is_static) {
+      pop_and_check_object(obj);
+      __ push(rdx);
+      check_and_update_stale_object_before_accessing_member(obj, r14, rdx);
+      __ restore_locals();
+      __ pop(rdx);
+    }
     __ movflt(field, xmm0);
     if (!is_static) {
       patch_bytecode(Bytecodes::_fast_fputfield, bc, rbx, true, byte_no);
@@ -2617,7 +2668,13 @@ void TemplateTable::putfield_or_static(int byte_no, bool is_static) {
   // dtos
   {
     __ pop(dtos);
-    if (!is_static) pop_and_check_object(obj);
+    if (!is_static) {
+      pop_and_check_object(obj);
+      __ push(rdx);
+      check_and_update_stale_object_before_accessing_member(obj, r14, rdx);
+      __ restore_locals();
+      __ pop(rdx);
+    }
     __ movdbl(field, xmm0);
     if (!is_static) {
       patch_bytecode(Bytecodes::_fast_dputfield, bc, rbx, true, byte_no);
@@ -2724,13 +2781,17 @@ void TemplateTable::fast_storefield(TosState state) {
   // [jk] not needed currently
   // volatile_barrier(Assembler::Membar_mask_bits(Assembler::LoadStore |
   //                                              Assembler::StoreStore));
-
+  __ movl(r14, rdx); // save flags
   Label notVolatile;
   __ shrl(rdx, ConstantPoolCacheEntry::is_volatile_shift);
   __ andl(rdx, 0x1);
 
   // Get object from stack
   pop_and_check_object(rcx);
+  __ push(rdx);
+  check_and_update_stale_object_before_accessing_member(rcx, r14, rdx);
+  __ restore_locals();
+  __ pop(rdx);
 
   // field address
   const Address field(rcx, rbx, Address::times_1);
@@ -2810,6 +2871,10 @@ void TemplateTable::fast_accessfield(TosState state) {
   //   __ shrl(rdx, ConstantPoolCacheEntry::is_volatile_shift);
   //   __ andl(rdx, 0x1);
   // }
+  __ movl(rdx, Address(rcx, rbx, Address::times_8,
+                          in_bytes(ConstantPoolCache::base_offset() +
+                                   ConstantPoolCacheEntry::flags_offset())));
+
   __ movptr(rbx, Address(rcx, rbx, Address::times_8,
                          in_bytes(ConstantPoolCache::base_offset() +
                                   ConstantPoolCacheEntry::f2_offset())));
@@ -2817,6 +2882,10 @@ void TemplateTable::fast_accessfield(TosState state) {
   // rax: object
   __ verify_oop(rax);
   __ null_check(rax);
+
+  check_and_update_stale_object_before_accessing_member(rax, rdx, r14);
+  __ restore_locals();
+
   Address field(rax, rbx, Address::times_1);
 
   // access field
@@ -2870,10 +2939,16 @@ void TemplateTable::fast_xaccess(TosState state) {
             Address(rcx, rdx, Address::times_8,
                     in_bytes(ConstantPoolCache::base_offset() +
                              ConstantPoolCacheEntry::f2_offset())));
+
+  __ movl(rdx, Address(rcx, rdx, Address::times_8,
+                    in_bytes(ConstantPoolCache::base_offset() +
+                             ConstantPoolCacheEntry::flags_offset())));
+
   // make sure exception is reported in correct bcp range (getfield is
   // next instruction)
   __ increment(r13);
   __ null_check(rax);
+  check_and_update_stale_object_before_accessing_member(rax, rdx, rcx);
   switch (state) {
   case itos:
     __ movl(rax, Address(rax, rbx, Address::times_1));
@@ -2905,6 +2980,109 @@ void TemplateTable::fast_xaccess(TosState state) {
   __ decrement(r13);
 }
 
+//-----------------------------------------------------------------------------
+// DSU helpers
+
+// Check the object before accessing a member
+// We need to three check together.
+void TemplateTable::check_and_update_stale_object_before_accessing_member(Register obj, Register flags,
+    Register temp, bool do_mixed_object_check) {
+  assert_different_registers(obj, flags, temp);
+
+  Label skip_check;
+
+  {
+    // move flags to temp
+    __ movl(temp, flags);
+    __ shrl(temp, ConstantPoolCacheEntry::stale_object_check_shift);
+    __ andl(temp, 0x01);
+
+    // Note:: if a member requires mixed object check then it must require a stale object check.
+    // This is the same to type narrow check.
+    __ jcc(Assembler::zero, skip_check); // not subject to any check, skip check
+
+    check_and_update_stale_object(obj, temp);
+  }
+
+  // obj now is guaranteed to be a valid (not a stale) object
+  // But it may cause type errors due to type narrowing.
+  // Now, we need to check type narrowing
+  {
+    Label skip_type_narrow_check;
+    __ movl(temp, flags);
+    __ shrl(temp, ConstantPoolCacheEntry::type_narrow_check_shift);
+    __ andl(temp, 0x01);
+    __ jcc(Assembler::zero, skip_type_narrow_check);
+
+    type_narrow_check(obj, temp);
+
+    __ bind(skip_type_narrow_check); // skip type narrow check, but we may do mixed object check.
+  }
+
+  if (do_mixed_object_check) {
+    __ movl(temp, flags);
+    __ shrl(temp, ConstantPoolCacheEntry::mixed_object_check_shift);
+    __ andl(temp, 0x01);
+    __ jcc(Assembler::zero, skip_check); // not a mixed object, finish check.
+
+    check_and_load_mixed_object(obj, temp);
+  }
+
+  __ bind(skip_check);
+}
+
+
+// Check the dsu flag in the klass of the object
+// If the dsu flag indicates the object is stale,
+// update it.
+void TemplateTable::check_and_update_stale_object(Register obj, Register temp) {
+  assert_different_registers(obj, temp);
+
+  Label skip_update;
+  __ load_klass(temp, obj);
+  __ movl(temp, Address(temp, Klass::dsu_flags_offset()));
+  __ andl(temp, DSU_FLAGS_CLASS_IS_STALE_CLASS);
+  __ jcc(Assembler::zero, skip_update);// not a stale class, skip update
+  explicit_stale_object_updating(obj);
+  __ bind(skip_update);
+}
+
+
+void TemplateTable::type_narrow_check(Register obj, Register temp) {
+  Label skip_slow_check;
+
+  __ load_klass(temp, obj);
+  __ movl(temp, Address(temp, Klass::dsu_flags_offset()));
+  __ andl(temp, DSU_FLAGS_CLASS_IS_TYPE_NARROWED_CLASS);
+  __ jcc(Assembler::zero, skip_slow_check);// not a type narrowed class, skip slow type narrow check.
+
+  __ stop("We have not implement a full type narrow checking here. But type narrow error is very rare in practice.");
+
+  __ bind(skip_slow_check);
+}
+
+
+void TemplateTable::check_and_load_mixed_object(Register obj, Register temp) {
+  const Address mark_word = Address(obj, 0);
+  Label skip_load;
+  // Check whether obj is a mixed object.
+  __ movl(temp, mark_word);
+  __ andl(temp, markOopDesc::mixed_object_mask_in_place);
+  __ cmpl(temp, markOopDesc::mixed_object_value);
+  __ jcc(Assembler::notEqual, skip_load);
+
+  __ movl(obj, mark_word);
+  __ andl(obj, ~markOopDesc::mixed_object_mask_in_place); // Now, obj is pointed to the phantom object.
+
+  __ bind(skip_load);
+}
+
+
+void TemplateTable::explicit_stale_object_updating(Register obj) {
+  __ push_CPU_state();
+  __ call_VM(noreg, CAST_FROM_FN_PTR(address, InterpreterRuntime::update_stale_object), obj);
+  __ pop_CPU_state();
+}
 
 
 //-----------------------------------------------------------------------------
@@ -3022,7 +3200,7 @@ void TemplateTable::invokevirtual_helper(Register index,
 
   // do the call - the index is actually the method to call
   // that is, f2 is a vtable index if !is_vfinal, else f2 is a Method*
-
+ 
   // It's final, need a null check here!
   __ null_check(recv);
 
@@ -3036,6 +3214,8 @@ void TemplateTable::invokevirtual_helper(Register index,
 
   // get receiver klass
   __ null_check(recv, oopDesc::klass_offset_in_bytes());
+  // check and update stale object here.
+  check_and_update_stale_object_before_accessing_member(recv, flags, rax, false);
   __ load_klass(rax, recv);
 
   // profile this call
@@ -3125,13 +3305,38 @@ void TemplateTable::invokeinterface(int byte_no) {
   // profile this call
   __ profile_virtual_call(rdx, r13, r14);
 
-  Label no_such_interface, no_such_method;
+  Label no_such_interface, no_such_method, stale_object_check, original_flow;
 
   __ lookup_interface_method(// inputs: rec. class, interface, itable index
                              rdx, rax, rbx,
                              // outputs: method, scan temp. reg
                              rbx, r13,
+                             stale_object_check);
+
+  __ jmp(original_flow);
+
+  __ bind(stale_object_check);
+
+  __ pop(rbx);           // pop return address (pushed by prepare_invoke)
+  __ restore_bcp();      // r13 must be correct for exception handler   (was destroyed)
+  __ restore_locals();   // make sure locals pointer is correct as well (was destroyed)
+
+  // explicit update here
+  explicit_stale_object_updating(rcx);
+
+  prepare_invoke(byte_no, rax, rbx,  // get f1 Klass*, f2 itable index
+                 rcx, rdx); // recv, flags
+
+  __ restore_locals();  // restore r14
+  __ load_klass(rdx, rcx);
+
+  __ lookup_interface_method(// inputs: rec. class, interface, itable index
+                             rdx, rax, rbx,
+                             // outputs: method, scan temp. reg
+                             rbx, rsi,
                              no_such_interface);
+
+  __ bind(original_flow);
 
   // rbx: Method* to call
   // rcx: receiver
@@ -3433,7 +3638,10 @@ void TemplateTable::checkcast() {
   Label done, is_null, ok_is_subtype, quicked, resolved;
   __ testptr(rax, rax); // object is in rax
   __ jcc(Assembler::zero, is_null);
-
+  // We must do mixed object check here.
+  // But we have no need to to type narrow check.
+  // The following type narrow check would throw a ClassCastException
+  check_and_update_stale_object(rax, rcx);
   // Get cpool & tags index
   __ get_cpool_and_tags(rcx, rdx); // rcx=cpool, rdx=tags array
   __ get_unsigned_2_byte_index_at_bcp(rbx, 1); // rbx=index
@@ -3488,7 +3696,11 @@ void TemplateTable::instanceof() {
   Label done, is_null, ok_is_subtype, quicked, resolved;
   __ testptr(rax, rax);
   __ jcc(Assembler::zero, is_null);
-
+  // We must do mixed object check here.
+  // We need a type narrow check here,
+  // as a type narrow check should throw a ClassCastException
+  check_and_update_stale_object(rax, rcx);
+  type_narrow_check(rax, rcx);
   // Get cpool & tags index
   __ get_cpool_and_tags(rcx, rdx); // rcx=cpool, rdx=tags array
   __ get_unsigned_2_byte_index_at_bcp(rbx, 1); // rbx=index

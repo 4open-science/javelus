@@ -48,6 +48,8 @@
 #include "runtime/arguments.hpp"
 #include "runtime/biasedLocking.hpp"
 #include "runtime/deoptimization.hpp"
+#include "runtime/dsu.hpp"
+#include "runtime/dsuOperation.hpp"
 #include "runtime/fprofiler.hpp"
 #include "runtime/frame.inline.hpp"
 #include "runtime/init.hpp"
@@ -3257,6 +3259,53 @@ void CompilerThread::oops_do(OopClosure* f, CLDClosure* cld_f, CodeBlobClosure* 
   }
 }
 
+static void dsu_thread_entry(JavaThread* thread, TRAPS) {
+  Javelus::dsu_thread_loop();
+}
+
+DSUThread::DSUThread()
+: JavaThread(&dsu_thread_entry){
+  _task_queue = NULL;
+  _lock = DSUThread_lock;
+}
+
+void DSUThread::add_task(DSUTask * task) {
+  MutexLocker locker(lock());
+  assert(lock()->owned_by_self(), "must own lock");
+  task->set_next(NULL);
+
+  if (_task_queue == NULL) {
+    // The compile queue is empty.
+    _task_queue = task;
+  } else {
+  // Append the task to the queue.
+    _task_queue->set_next(task);
+  }
+  lock()->notify_all();
+}
+
+void DSUThread::sleep(long timeout){
+  MutexLocker locker(lock());
+  lock()->wait();
+}
+
+void DSUThread::wakeup(){
+  MutexLocker locker(lock());
+  lock()->notify_all();
+}
+
+DSUTask* DSUThread::next_task() {
+
+  MutexLocker locker(lock());
+
+  while (_task_queue == NULL){
+    lock()->wait();
+  }
+
+  DSUTask * task = _task_queue;
+  _task_queue = _task_queue->next();
+  return task;
+}
 
 // ======= Threads ========
 
@@ -3634,6 +3683,8 @@ jint Threads::create_vm(JavaVMInitArgs* args, bool* canTryAgain) {
 #if defined(COMPILER1) || defined(COMPILER2) || defined(SHARK)
   CompileBroker::compilation_init();
 #endif
+
+  Javelus::dsu_thread_init();
 
   if (EnableInvokeDynamic) {
     // Pre-initialize some JSR292 core classes to avoid deadlock during class loading.

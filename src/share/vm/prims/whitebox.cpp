@@ -907,6 +907,9 @@ WB_END
 
 WB_ENTRY(jboolean, WB_IsMonitorInflated(JNIEnv* env, jobject wb, jobject obj))
   oop obj_oop = JNIHandles::resolve(obj);
+  if (obj_oop->mark()->is_mixed_object()) {
+    obj_oop = (oop)obj_oop->mark()->decode_phantom_object_pointer();
+  }
   return (jboolean) obj_oop->mark()->has_monitor();
 WB_END
 

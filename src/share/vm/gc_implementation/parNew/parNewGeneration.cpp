@@ -746,9 +746,19 @@ template <class T> void ScanClosureWithParBarrier::do_oop_work(T* p) {
     oop obj = oopDesc::decode_heap_oop_not_null(heap_oop);
     if ((HeapWord*)obj < _boundary) {
       assert(!_g->to()->is_in_reserved(obj), "Scanning field twice?");
-      oop new_obj = obj->is_forwarded()
+      oop new_obj;
+      if (obj->mark()->is_mixed_object()) {
+        oop phantom_object = oop(obj->mark()->decode_phantom_object_pointer());
+        if (phantom_object->is_forwarded()) {
+          new_obj = phantom_object->forwardee();
+        } else {
+          new_obj = phantom_object;
+        }
+      } else {
+        new_obj = obj->is_forwarded()
                       ? obj->forwardee()
                       : _g->DefNewGeneration::copy_to_survivor_space(obj);
+      }
       oopDesc::encode_store_heap_oop_not_null(p, new_obj);
     }
     if (_gc_barrier) {
@@ -1164,7 +1174,7 @@ oop ParNewGeneration::copy_to_survivor_space_avoiding_promotion_undo(
   // not forwarded.  That might not be the case here.  It is the case that
   // the caller observed it to be not forwarded at some time in the past.
   assert(is_in_reserved(old), "shouldn't be scavenging this oop");
-
+  assert(!old->mark()->is_mixed_object(), "no forward of inplace object");
   // The sequential code read "old->age()" below.  That doesn't work here,
   // since the age is in the mark word, and that might be overwritten with
   // a forwarding pointer by a parallel thread.  So we must save the mark

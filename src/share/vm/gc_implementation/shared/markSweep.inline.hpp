@@ -29,6 +29,7 @@
 #include "gc_interface/collectedHeap.hpp"
 #include "utilities/stack.inline.hpp"
 #include "utilities/macros.hpp"
+#include "runtime/dsu.hpp"
 #if INCLUDE_ALL_GCS
 #include "gc_implementation/g1/g1StringDedup.hpp"
 #include "gc_implementation/parallelScavenge/psParallelCompact.hpp"
@@ -63,7 +64,14 @@ template <class T> inline void MarkSweep::follow_root(T* p) {
   T heap_oop = oopDesc::load_heap_oop(p);
   if (!oopDesc::is_null(heap_oop)) {
     oop obj = oopDesc::decode_heap_oop_not_null(heap_oop);
-    if (!obj->mark()->is_marked()) {
+    if (obj->mark()->is_mixed_object()) {
+      oop phantom_object = oop(obj->mark()->decode_phantom_object_pointer());
+      if (!phantom_object->mark()->is_marked()) {
+        mark_object(phantom_object); // must be STW GC
+        Javelus::merge_mixed_object(obj, phantom_object);
+        phantom_object->follow_contents();
+      }
+    } else if (!obj->mark()->is_marked()) {
       mark_object(obj);
       obj->follow_contents();
     }
@@ -76,7 +84,14 @@ template <class T> inline void MarkSweep::mark_and_push(T* p) {
   T heap_oop = oopDesc::load_heap_oop(p);
   if (!oopDesc::is_null(heap_oop)) {
     oop obj = oopDesc::decode_heap_oop_not_null(heap_oop);
-    if (!obj->mark()->is_marked()) {
+    if (obj->mark()->is_mixed_object()) {
+      oop phantom_object = oop(obj->mark()->decode_phantom_object_pointer());
+      if (!phantom_object->mark()->is_marked()) {
+        mark_object(phantom_object);
+        Javelus::merge_mixed_object(obj, phantom_object);
+        _marking_stack.push(phantom_object);
+      }
+    } else if (!obj->mark()->is_marked()) {
       mark_object(obj);
       _marking_stack.push(obj);
     }
@@ -93,7 +108,16 @@ template <class T> inline void MarkSweep::adjust_pointer(T* p) {
   T heap_oop = oopDesc::load_heap_oop(p);
   if (!oopDesc::is_null(heap_oop)) {
     oop obj     = oopDesc::decode_heap_oop_not_null(heap_oop);
-    oop new_obj = oop(obj->mark()->decode_pointer());
+    oop new_obj;
+    if (obj->mark()->is_mixed_object()) {
+      oop phantom_object = oop(obj->mark()->decode_phantom_object_pointer());
+      new_obj = oop(phantom_object->mark()->decode_pointer());
+      if (new_obj == NULL) {
+        new_obj = phantom_object; // the phantom object is not moved but must be merged.
+      }
+    } else {
+      new_obj = oop(obj->mark()->decode_pointer());
+    }
     assert(new_obj != NULL ||                         // is forwarding ptr?
            obj->mark() == markOopDesc::prototype() || // not gc marked?
            (UseBiasedLocking && obj->mark()->has_bias_pattern()),

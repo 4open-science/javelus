@@ -97,6 +97,9 @@
   template(LinuxDllLoad)                          \
   template(RotateGCLog)                           \
   template(WhiteBoxOperation)                     \
+  template(DSU)                                   \
+  template(RelinkMixedObject)                     \
+  template(UnlinkMixedObject)                     \
 
 class VM_Operation: public CHeapObj<mtInternal> {
  public:

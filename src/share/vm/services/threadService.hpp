@@ -193,6 +193,7 @@ private:
   oop         _threadObj;
   java_lang_Thread::ThreadStatus _thread_status;
 
+
   bool    _is_ext_suspended;
   bool    _is_in_native;
 

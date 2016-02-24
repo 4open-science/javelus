@@ -201,6 +201,8 @@ class Ticks;
 class SystemDictionary : AllStatic {
   friend class VMStructs;
   friend class SystemDictionaryHandles;
+  friend class Javelus;
+  friend class DSUClassLoader;
 
  public:
   enum WKID {
@@ -278,6 +280,8 @@ public:
                                KlassHandle host_klass,
                                GrowableArray<Handle>* cp_patches,
                                TRAPS);
+
+  static void redefine_instance_class(instanceKlassHandle old_class, instanceKlassHandle new_class, TRAPS);
 
   // Resolve from stream (called by jni_DefineClass and JVM_DefineClass)
   static Klass* resolve_from_stream(Symbol* class_name, Handle class_loader,

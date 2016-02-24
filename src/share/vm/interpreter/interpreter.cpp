@@ -210,12 +210,18 @@ AbstractInterpreter::MethodKind AbstractInterpreter::method_kind(methodHandle m)
   // Note: This test must come _before_ the test for intrinsic
   //       methods. See also comments below.
   if (m->is_native()) {
+    if (m->needs_stale_object_check()) {
+      return m->is_synchronized() ? dsu_native_synchronized : dsu_native;
+    }
     assert(!m->is_method_handle_intrinsic(), "overlapping bits here, watch out");
     return m->is_synchronized() ? native_synchronized : native;
   }
 
   // Synchronized?
   if (m->is_synchronized()) {
+    if (m->needs_stale_object_check()) {
+      return dsu_zerolocals_synchronized;
+    }
     return zerolocals_synchronized;
   }
 
@@ -228,6 +234,9 @@ AbstractInterpreter::MethodKind AbstractInterpreter::method_kind(methodHandle m)
 
   // Empty method?
   if (m->is_empty_method()) {
+    if (m->needs_stale_object_check()) {
+      return dsu_empty;
+    }
     return empty;
   }
 
@@ -253,10 +262,16 @@ AbstractInterpreter::MethodKind AbstractInterpreter::method_kind(methodHandle m)
 
   // Accessor method?
   if (m->is_accessor()) {
+    if (m->needs_stale_object_check()) {
+      return dsu_accessor;
+    }
     assert(m->size_of_parameters() == 1, "fast code for accessors assumes parameter size = 1");
     return accessor;
   }
 
+  if (m->needs_stale_object_check()) {
+    return dsu_zerolocals;
+  }
   // Note: for now: zero locals for all non-empty methods
   return zerolocals;
 }
@@ -311,6 +326,11 @@ void AbstractInterpreter::print_method_kind(MethodKind kind) {
     case java_util_zip_CRC32_update           : tty->print("java_util_zip_CRC32_update"); break;
     case java_util_zip_CRC32_updateBytes      : tty->print("java_util_zip_CRC32_updateBytes"); break;
     case java_util_zip_CRC32_updateByteBuffer : tty->print("java_util_zip_CRC32_updateByteBuffer"); break;
+    case dsu_zerolocals             : tty->print("dsu_zerolocals"             ); break;
+    case dsu_zerolocals_synchronized: tty->print("dsu_zerolocals_synchronized"); break;
+    case dsu_native                 : tty->print("dsu_native"                 ); break;
+    case dsu_native_synchronized    : tty->print("dsu_native_synchronized"    ); break;
+    case dsu_empty                  : tty->print("dsu_empty"                  ); break;
     default:
       if (kind >= method_handle_invoke_FIRST &&
           kind <= method_handle_invoke_LAST) {
@@ -402,6 +422,76 @@ address AbstractInterpreter::deopt_continue_after_entry(Method* method, address 
     : Interpreter::return_entry(as_TosState(type), length, code);
 }
 
+address AbstractInterpreter::deopt_continue_after_with_barrier_entry(Method* method, address bcp, int callee_parameters, bool is_top_frame) {
+  assert(method->contains(bcp), "just checkin'");
+
+  // Get the original and rewritten bytecode.
+  Bytecodes::Code code = Bytecodes::java_code_at(method, bcp);
+  assert(!Interpreter::bytecode_should_reexecute(code), "should not reexecute");
+
+  const int bci = method->bci_from(bcp);
+
+  // compute continuation length
+  const int length = Bytecodes::length_at(method, bcp);
+
+  // compute result type
+  BasicType type = T_ILLEGAL;
+
+  switch (code) {
+    case Bytecodes::_invokevirtual  :
+    case Bytecodes::_invokespecial  :
+    case Bytecodes::_invokestatic   :
+    case Bytecodes::_invokeinterface: {
+      Thread *thread = Thread::current();
+      ResourceMark rm(thread);
+      methodHandle mh(thread, method);
+      type = Bytecode_invoke(mh, bci).result_type();
+      // since the cache entry might not be initialized:
+      // (NOT needed for the old calling convension)
+      if (!is_top_frame) {
+        int index = Bytes::get_native_u2(bcp+1);
+        method->constants()->cache()->entry_at(index)->set_parameter_size(callee_parameters);
+      }
+      break;
+    }
+
+   case Bytecodes::_invokedynamic: {
+      Thread *thread = Thread::current();
+      ResourceMark rm(thread);
+      methodHandle mh(thread, method);
+      type = Bytecode_invoke(mh, bci).result_type();
+      // since the cache entry might not be initialized:
+      // (NOT needed for the old calling convension)
+      if (!is_top_frame) {
+        int index = Bytes::get_native_u4(bcp+1);
+        method->constants()->invokedynamic_cp_cache_entry_at(index)->set_parameter_size(callee_parameters);
+      }
+      break;
+    }
+
+    case Bytecodes::_ldc   :
+    case Bytecodes::_ldc_w : // fall through
+    case Bytecodes::_ldc2_w:
+      {
+        Thread *thread = Thread::current();
+        ResourceMark rm(thread);
+        methodHandle mh(thread, method);
+        type = Bytecode_loadconstant(mh, bci).result_type();
+        break;
+      }
+
+    default:
+      type = Bytecodes::result_type(code);
+      break;
+  }
+
+  // return entry point for computed continuation state & bytecode length
+  return
+    is_top_frame
+    ? Interpreter::deopt_with_barrier_entry (as_TosState(type), length)
+    : Interpreter::return_with_barrier_entry(as_TosState(type), length, code);
+}
+
 // If deoptimization happens, this function returns the point where the interpreter reexecutes
 // the bytecode.
 // Note: Bytecodes::_athrow is a special case in that it does not return
@@ -415,6 +505,17 @@ address AbstractInterpreter::deopt_reexecute_entry(Method* method, address bcp) 
   }
 #endif /* COMPILER1 */
   return Interpreter::deopt_entry(vtos, 0);
+}
+
+address AbstractInterpreter::deopt_reexecute_with_barrier_entry(Method* method, address bcp) {
+  assert(method->contains(bcp), "just checkin'");
+  Bytecodes::Code code   = Bytecodes::java_code_at(method, bcp);
+#ifdef COMPILER1
+  if(code == Bytecodes::_athrow ) {
+    return Interpreter::rethrow_exception_entry();
+  }
+#endif /* COMPILER1 */
+  return Interpreter::deopt_with_barrier_entry(vtos, 0);
 }
 
 // If deoptimization happens, the interpreter should reexecute these bytecodes.

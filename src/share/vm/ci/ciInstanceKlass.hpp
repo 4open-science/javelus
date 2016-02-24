@@ -55,6 +55,7 @@ private:
   bool                   _has_default_methods;
 
   ciFlags                _flags;
+  ciDSUFlags             _dsu_flags;
   jint                   _nonstatic_field_size;
   jint                   _nonstatic_oop_map_size;
 
@@ -130,6 +131,10 @@ public:
   ciFlags                flags()          {
     assert(is_loaded(), "must be loaded");
     return _flags;
+  }
+  ciDSUFlags             dsu_flags()      {
+    assert(is_loaded(), "must be loaded");
+    return _dsu_flags;
   }
   bool                   has_finalizer()  {
     assert(is_loaded(), "must be loaded");
@@ -207,6 +212,11 @@ public:
   // this klass.  This instance is used for locking of
   // synchronized static methods of this klass.
   ciInstance*            java_mirror();
+
+  bool is_new_redefined_class      () { return dsu_flags().is_new_redefined_class(); }
+  bool is_inplace_new_class        () { return dsu_flags().is_inplace_new_class(); }
+  bool is_stale_class              () { return dsu_flags().is_stale_class(); }
+  bool is_super_type_of_stale_class() { return dsu_flags().is_super_type_of_stale_class(); }
 
   // Java access flags
   bool is_public      () { return flags().is_public(); }

@@ -45,6 +45,7 @@
 #include "runtime/biasedLocking.hpp"
 #include "runtime/compilationPolicy.hpp"
 #include "runtime/deoptimization.hpp"
+#include "runtime/dsu.hpp"
 #include "runtime/fieldDescriptor.hpp"
 #include "runtime/handles.inline.hpp"
 #include "runtime/interfaceSupport.hpp"
@@ -590,7 +591,10 @@ IRT_ENTRY(void, InterpreterRuntime::resolve_get_put(JavaThread* thread, Bytecode
     state,
     info.access_flags().is_final(),
     info.access_flags().is_volatile(),
-    pool->pool_holder()
+    pool->pool_holder(),
+    info.dsu_flags().needs_mixed_object_check(),
+    info.dsu_flags().needs_type_narrow_check(),
+    info.dsu_flags().needs_stale_object_check()
   );
 IRT_END
 
@@ -686,6 +690,129 @@ IRT_END
 IRT_ENTRY(void, InterpreterRuntime::_breakpoint(JavaThread* thread, Method* method, address bcp))
   JvmtiExport::post_raw_breakpoint(thread, method, bcp);
 IRT_END
+
+IRT_ENTRY(void, InterpreterRuntime::invoke_return_barrier(JavaThread* thread))
+  tty->print_cr("invoke return barrier");
+IRT_END
+
+// TODO we need implement continuous object update here.
+//
+IRT_ENTRY(void, InterpreterRuntime::update_stale_object(JavaThread* thread, oop recv))
+  //transform type before get code
+  HandleMark hm(thread);
+  Handle obj (thread,recv);
+
+  if (obj->is_instance()) {
+    Javelus::transform_object(obj, thread);
+  } else {
+    DSU_WARN(("Non-instance objects in update_stale_object_simple!"));
+  }
+IRT_END
+
+// for implicit update by dynamic method call
+// we need to update the constant pool cache accordingly.
+IRT_ENTRY(void, InterpreterRuntime::update_stale_object_and_reresolve_method(JavaThread* thread, oopDesc* recv))
+{ ResourceMark rm(thread);
+  Handle receiver(thread, recv);
+
+  instanceKlassHandle ikh (receiver->klass());
+  if (ikh->is_stale_class()) {
+    //transform type before get code
+    // if we update the object, we may be need to update
+    Javelus::transform_object(receiver, thread);
+    ikh = instanceKlassHandle(ikh->next_version());
+    assert(!ikh->is_stale_class(),"cannot be stale after transforming.");
+  }
+
+  RegisterMap reg_map(thread, false);
+  frame last_frame = thread->last_frame();
+  methodHandle m (thread, method(thread));
+  Bytecode_invoke call(m, bci(thread));
+  Bytecodes::Code bytecode = call.java_code();
+
+  // resolve method
+  CallInfo info;
+  constantPoolHandle pool(thread, method(thread)->constants());
+
+  {
+    JvmtiHideSingleStepping jhss(thread);
+    LinkResolver::resolve_invoke(info, receiver, pool,
+                                 get_index_u2_cpcache(thread, bytecode), bytecode, CHECK);
+    if (JvmtiExport::can_hotswap_or_post_breakpoint()) {
+      int retry_count = 0;
+      while (info.resolved_method()->is_old()) {
+        // It is very unlikely that method is redefined more than 100 times
+        // in the middle of resolve. If it is looping here more than 100 times
+        // means then there could be a bug here.
+        guarantee((retry_count++ < 100),
+                  "Could not resolve to latest version of redefined method");
+        // method is redefined in the middle of resolve so re-try.
+        LinkResolver::resolve_invoke(info, receiver, pool,
+                                     get_index_u2_cpcache(thread, bytecode), bytecode, CHECK);
+      }
+    }
+  } // end JvmtiHideSingleStepping
+
+  // check if link resolution caused cpCache to be updated
+  if (already_resolved(thread)) {
+    thread->set_vm_result_2(info.resolved_method()());
+    return;
+  }
+  if (bytecode == Bytecodes::_invokeinterface) {
+    if (TraceItables && Verbose) {
+      ResourceMark rm(thread);
+      tty->print_cr("Resolving: klass: %s to method: %s", info.resolved_klass()->name()->as_C_string(), info.resolved_method()->name()->as_C_string());
+    }
+  }
+#ifdef ASSERT
+  if (bytecode == Bytecodes::_invokeinterface) {
+    if (info.resolved_method()->method_holder() ==
+                                            SystemDictionary::Object_klass()) {
+      // NOTE: THIS IS A FIX FOR A CORNER CASE in the JVM spec
+      // (see also CallInfo::set_interface for details)
+      assert(info.call_kind() == CallInfo::vtable_call ||
+             info.call_kind() == CallInfo::direct_call, "");
+      methodHandle rm = info.resolved_method();
+      assert(rm->is_final() || info.has_vtable_index(),
+             "should have been set already");
+    } else if (!info.resolved_method()->has_itable_index()) {
+      // Resolved something like CharSequence.toString.  Use vtable not itable.
+      assert(info.call_kind() != CallInfo::itable_call, "");
+    } else {
+      // Setup itable entry
+      assert(info.call_kind() == CallInfo::itable_call, "");
+      int index = info.resolved_method()->itable_index();
+      assert(info.itable_index() == index, "");
+    }
+  } else {
+    assert(info.call_kind() == CallInfo::direct_call ||
+           info.call_kind() == CallInfo::vtable_call, "");
+  }
+#endif
+  switch (info.call_kind()) {
+  case CallInfo::direct_call:
+    cache_entry(thread)->set_direct_call(
+      bytecode,
+      info.resolved_method());
+    break;
+  case CallInfo::vtable_call:
+    cache_entry(thread)->set_vtable_call(
+      bytecode,
+      info.resolved_method(),
+      info.vtable_index());
+    break;
+  case CallInfo::itable_call:
+    cache_entry(thread)->set_itable_call(
+      bytecode,
+      info.resolved_method(),
+      info.itable_index());
+    break;
+  default:  ShouldNotReachHere();
+  }
+  thread->set_vm_result_2(info.resolved_method()());
+}
+IRT_END
+
 
 IRT_ENTRY(void, InterpreterRuntime::resolve_invoke(JavaThread* thread, Bytecodes::Code bytecode)) {
   // extract receiver from the outgoing argument list if necessary

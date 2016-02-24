@@ -35,6 +35,7 @@
 #include "oops/instanceKlass.hpp"
 #include "oops/oop.hpp"
 #include "oops/typeArrayOop.hpp"
+#include "runtime/dsuFlags.hpp"
 #include "utilities/accessFlags.hpp"
 #include "utilities/growableArray.hpp"
 
@@ -103,6 +104,7 @@ class Method : public Metadata {
   MethodData*       _method_data;
   MethodCounters*   _method_counters;
   AccessFlags       _access_flags;               // Access flags
+  DSUFlags          _dsu_flags;                  // DSU flags
   int               _vtable_index;               // vtable index of this method (see VtableIndexFlag)
                                                  // note: can have vtables with >2**16 elements (because of inheritance)
 #ifdef CC_INTERP
@@ -172,6 +174,26 @@ class Method : public Metadata {
   // access flag
   AccessFlags access_flags() const               { return _access_flags;  }
   void set_access_flags(AccessFlags flags)       { _access_flags = flags; }
+
+  // dsu flags
+  DSUFlags dsu_flags() const                     { return _dsu_flags;  }
+  void set_dsu_flags(DSUFlags flags)             { _dsu_flags = flags; }
+
+  bool needs_stale_object_check () const         { return dsu_flags().needs_stale_object_check(); }
+  void set_needs_stale_object_check()            { _dsu_flags.set_needs_stale_object_check(); }
+  void clear_needs_stale_object_check()          { _dsu_flags.clear_needs_stale_object_check(); }
+
+  bool needs_mixed_object_check () const         { return dsu_flags().needs_mixed_object_check(); }
+  void set_needs_mixed_object_check()            { _dsu_flags.set_needs_mixed_object_check(); }
+  void clear_needs_mixed_object_check()          { _dsu_flags.clear_needs_mixed_object_check(); }
+
+  bool needs_type_narrow_check () const          { return dsu_flags().needs_stale_object_check(); }
+  void set_needs_type_narrow_check()             { _dsu_flags.set_needs_type_narrow_check(); }
+  void clear_needs_type_narrow_check()           { _dsu_flags.clear_needs_type_narrow_check(); }
+
+  bool is_restricted_method () const             { return dsu_flags().is_restricted_method(); }
+  void set_is_restricted_method()                { _dsu_flags.set_is_restricted_method(); }
+  void clear_is_restricted_method()              { _dsu_flags.clear_is_restricted_method(); }
 
   // name
   Symbol* name() const                           { return constants()->symbol_at(name_index()); }
@@ -462,6 +484,7 @@ class Method : public Metadata {
   AdapterHandlerEntry* adapter() {  return _adapter; }
   // setup entry points
   void link_method(methodHandle method, TRAPS);
+  void link_method_with_dsu_check(methodHandle method, TRAPS);
   // clear entry points. Used by sharing code
   void unlink_method();
 

@@ -759,7 +759,7 @@ class TypeVectY : public TypeVect {
 class TypePtr : public Type {
   friend class TypeNarrowPtr;
 public:
-  enum PTR { TopPTR, AnyNull, Constant, Null, NotNull, BotPTR, lastPTR };
+  enum PTR { TopPTR, AnyNull, AnyValid, Constant, Null, Valid, NotNull, BotPTR, lastPTR };
 protected:
   TypePtr( TYPES t, PTR ptr, int offset ) : Type(t), _ptr(ptr), _offset(offset) {}
   virtual bool eq( const Type *t ) const;
@@ -803,11 +803,12 @@ public:
   }
 
   // Tests for relation to centerline of type lattice:
-  static bool above_centerline(PTR ptr) { return (ptr <= AnyNull); }
-  static bool below_centerline(PTR ptr) { return (ptr >= NotNull); }
+  static bool above_centerline(PTR ptr) { return (ptr <= AnyValid); }
+  static bool below_centerline(PTR ptr) { return (ptr >= Valid); }
   // Convenience common pre-built types.
   static const TypePtr *NULL_PTR;
   static const TypePtr *NOTNULL;
+  static const TypePtr *VALID_PTR;
   static const TypePtr *BOTTOM;
 #ifndef PRODUCT
   virtual void dump2( Dict &d, uint depth, outputStream *st  ) const;
@@ -1068,6 +1069,7 @@ class TypeInstPtr : public TypeOopPtr {
 
   // Convenience common pre-built types.
   static const TypeInstPtr *NOTNULL;
+  static const TypeInstPtr *VALID;
   static const TypeInstPtr *BOTTOM;
   static const TypeInstPtr *MIRROR;
   static const TypeInstPtr *MARK;

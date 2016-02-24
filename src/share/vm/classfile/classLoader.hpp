@@ -149,6 +149,7 @@ class SharedPathsMiscInfo;
 template <MEMFLAGS F> class HashtableBucket;
 
 class ClassLoader: AllStatic {
+  friend class DSUPathEntryStreamProvider;
  public:
   enum SomeConstants {
     package_hash_table_size = 31  // Number of buckets

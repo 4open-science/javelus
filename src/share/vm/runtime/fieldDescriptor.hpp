@@ -28,6 +28,7 @@
 #include "oops/constantPool.hpp"
 #include "oops/symbol.hpp"
 #include "runtime/fieldType.hpp"
+#include "runtime/dsuFlags.hpp"
 #include "utilities/accessFlags.hpp"
 #include "utilities/constantTag.hpp"
 
@@ -38,6 +39,7 @@
 class fieldDescriptor VALUE_OBJ_CLASS_SPEC {
  private:
   AccessFlags         _access_flags;
+  DSUFlags            _dsu_flags;
   int                 _index; // the field index
   constantPoolHandle  _cp;
 
@@ -69,6 +71,7 @@ class fieldDescriptor VALUE_OBJ_CLASS_SPEC {
   InstanceKlass* field_holder()   const    { return _cp->pool_holder(); }
   ConstantPool* constants()       const    { return _cp(); }
   AccessFlags access_flags()      const    { return _access_flags; }
+  DSUFlags dsu_flags()            const    { return _dsu_flags; }
   oop loader()                    const;
   // Offset (in words) of field from start of instanceOop / Klass*
   int offset()                    const    { return field()->offset(); }

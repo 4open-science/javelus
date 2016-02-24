@@ -41,6 +41,22 @@
 
 PRAGMA_FORMAT_MUTE_WARNINGS_FOR_GCC
 
+// DSU support
+void ConstantPoolCacheEntry::reset_entry(){
+  _indices = (_indices & 0x0000FFFF);
+}
+
+bool ConstantPoolCacheEntry::adjust_entry_klass(Klass* old_holder, Klass* new_holder) {
+  if (_f1 == old_holder) {
+    initialize_entry(constant_pool_index());
+    _f1 = NULL;
+    _f2 = 0;
+    _flags = 0;
+    return true;
+  }
+  return false;
+}
+
 // Implementation of ConstantPoolCacheEntry
 
 void ConstantPoolCacheEntry::initialize_entry(int index) {
@@ -111,12 +127,18 @@ void ConstantPoolCacheEntry::set_field(Bytecodes::Code get_code,
                                        TosState field_type,
                                        bool is_final,
                                        bool is_volatile,
-                                       Klass* root_klass) {
+                                       Klass* root_klass,
+                                       bool mixed_object_check,
+                                       bool type_narrow_check,
+                                       bool stale_object_check) {
   set_f1(field_holder());
   set_f2(field_offset);
   assert((field_index & field_index_mask) == field_index,
          "field index does not fit in low flag bits");
   set_field_flags(field_type,
+                  ((mixed_object_check ? 1 : 0) << mixed_object_check_shift) |
+                  ((type_narrow_check ? 1 : 0) << type_narrow_check_shift) |
+                  ((stale_object_check ? 1 : 0) << stale_object_check_shift) |
                   ((is_volatile ? 1 : 0) << is_volatile_shift) |
                   ((is_final    ? 1 : 0) << is_final_shift),
                   field_index);
@@ -168,6 +190,8 @@ void ConstantPoolCacheEntry::set_direct_or_vtable_call(Bytecodes::Code invoke_co
           // set_f2_as_vfinal_method checks if is_vfinal flag is true.
           set_method_flags(as_TosState(method->result_type()),
                            (                             1      << is_vfinal_shift) |
+                           ((method->needs_stale_object_check() ? 1 : 0) << stale_object_check_shift)  |
+                           ((method->needs_type_narrow_check() ? 1 : 0) << type_narrow_check_shift)  |
                            ((method->is_final_method() ? 1 : 0) << is_final_shift)  |
                            ((change_to_virtual         ? 1 : 0) << is_forced_virtual_shift),
                            method()->size_of_parameters());
@@ -177,6 +201,8 @@ void ConstantPoolCacheEntry::set_direct_or_vtable_call(Bytecodes::Code invoke_co
           assert(vtable_index >= 0, "valid index");
           assert(!method->is_final_method(), "sanity");
           set_method_flags(as_TosState(method->result_type()),
+                           ((method->needs_stale_object_check() ? 1 : 0) << stale_object_check_shift)  |
+                           ((method->needs_type_narrow_check() ? 1 : 0) << type_narrow_check_shift)  |
                            ((change_to_virtual ? 1 : 0) << is_forced_virtual_shift),
                            method()->size_of_parameters());
           set_f2(vtable_index);
@@ -193,6 +219,8 @@ void ConstantPoolCacheEntry::set_direct_or_vtable_call(Bytecodes::Code invoke_co
       // It is cheap and safe to consult is_vfinal() at all times.
       // Once is_vfinal is set, it must stay that way, lest we get a dangling oop.
       set_method_flags(as_TosState(method->result_type()),
+                       ((method->needs_stale_object_check() ? 1 : 0) << stale_object_check_shift)  |
+                       ((method->needs_type_narrow_check() ? 1 : 0) << type_narrow_check_shift)  |
                        ((is_vfinal()               ? 1 : 0) << is_vfinal_shift) |
                        ((method->is_final_method() ? 1 : 0) << is_final_shift),
                        method()->size_of_parameters());
@@ -670,4 +698,24 @@ void ConstantPoolCache::verify_on(outputStream* st) {
   guarantee(is_constantPoolCache(), "obj must be constant pool cache");
   // print constant pool cache entries
   for (int i = 0; i < length(); i++) entry_at(i)->verify(st);
+}
+
+// DSU support
+void ConstantPoolCache::reset_all_entries() {
+  for (int i = 0; i < length(); i++) {
+    ConstantPoolCacheEntry* e = entry_at(i);
+    e->reset_entry();
+  }
+}
+
+void ConstantPoolCache::copy_method_entry_from(int to_index,
+    ConstantPoolCache* from_cache, int from_index) {
+  ConstantPoolCacheEntry * to_entry = entry_at(to_index);
+  assert(to_entry->is_method_entry(),"old entry must be an method entry");
+
+  ConstantPoolCacheEntry * from_entry = from_cache->entry_at(from_index);
+  const int constant_pool_index = from_entry->constant_pool_index();
+  memcpy((void*)(from_entry), (void*)(to_entry), sizeof(ConstantPoolCacheEntry));
+  to_entry->initialize_entry(constant_pool_index);
+  to_entry->reset_entry();
 }

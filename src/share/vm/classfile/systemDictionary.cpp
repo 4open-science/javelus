@@ -53,6 +53,7 @@
 #include "prims/methodHandles.hpp"
 #include "runtime/arguments.hpp"
 #include "runtime/biasedLocking.hpp"
+#include "runtime/dsu.hpp"
 #include "runtime/fieldType.hpp"
 #include "runtime/handles.inline.hpp"
 #include "runtime/java.hpp"
@@ -315,6 +316,15 @@ Klass* SystemDictionary::resolve_super_or_fail(Symbol* child_name,
                                                  Handle protection_domain,
                                                  bool is_superclass,
                                                  TRAPS) {
+  if (THREAD->is_DSU_thread()) {
+    Klass* superk = Javelus::resolve_dsu_klass_or_null(class_name, ClassLoaderData::class_loader_data(class_loader()), protection_domain, CHECK_NULL);
+    if (superk != NULL) {
+      ResourceMark rm(THREAD);
+      DSU_TRACE_MESG(("Resolved super class %s for %s in DSU hierarchy.", class_name->as_C_string(), child_name->as_C_string()));
+      return superk;
+    }
+  }
+
   // Double-check, if child class is already loaded, just return super-class,interface
   // Don't add a placedholder if already loaded, i.e. already in system dictionary
   // Make sure there's a placeholder for the *child* before resolving.
@@ -1435,6 +1445,73 @@ void SystemDictionary::define_instance_class(instanceKlassHandle k, TRAPS) {
 
 }
 
+// DSUClass::redefine_class
+void SystemDictionary::redefine_instance_class(instanceKlassHandle old_class, instanceKlassHandle new_class, TRAPS){
+  ClassLoaderData* loader_data = new_class->class_loader_data();
+  Symbol* class_name = new_class->name();
+
+  unsigned int d_hash = dictionary()->compute_hash(class_name, loader_data);
+  int d_index = dictionary()->hash_to_index(d_hash);
+
+  {
+    unsigned int p_hash = placeholders()->compute_hash(class_name, loader_data);
+    int p_index = placeholders()->hash_to_index(p_hash);
+
+    MutexLocker mu_r(Compile_lock, THREAD);
+    assert_locked_or_safepoint(Compile_lock);
+
+    // Add to class hierarchy, initialize vtables, and do possible
+    // deoptimizations.
+    // Link into hierachy. Make sure the vtables are initialized before linking into
+    new_class->append_to_sibling_list();                    // add to superklass/sibling list
+    new_class->process_interfaces(THREAD);                  // handle all "implements" declarations
+
+    // Now flush all code that depended on old class hierarchy.
+    // Note: must be done *after* linking k into the hierarchy (was bug 12/9/97)
+    // Also, first reinitialize vtable because it may have gotten out of synch
+    // while the new class wasn't connected to the class hierarchy.
+    //Universe::flush_dependents_on(new_class);
+
+    {
+      MutexLocker mu1(SystemDictionary_lock, THREAD);
+
+      if (UseBiasedLocking  /*&& BiasedLocking::enabled()*/ ) {
+        // Set biased locking bit for all loaded classes; it will be
+        // cleared if revocation occurs too often for this type
+        // NOTE that we must only do this when the class is initally
+        // defined, not each time it is referenced from a new class loader
+        new_class->set_prototype_header(markOopDesc::biased_locking_prototype());
+      }
+
+      // Check for a placeholder. If there, remove it and make a
+      // new system dictionary entry.
+      placeholders()->find_and_remove(p_index, p_hash, class_name, loader_data, PlaceholderTable::DEFINE_CLASS, THREAD);
+
+      Klass* sd_check = find_class(d_index, d_hash, class_name, loader_data);
+      if (sd_check != NULL) {
+        assert(old_class.not_null(), "sanity check");
+        assert(sd_check == old_class(), "sanity check");
+        dictionary()->find_and_replace_klass(class_name, loader_data, new_class);
+        // As we only increment the revision number after all classes have been updated,
+        // here we have to made a local increment here.
+        new_class->set_born_rn(Javelus::system_revision_number() + 1);
+        // in fact, we have no need to notice here,
+        // as we would make a global notice after we update all classes
+        //notice_modification();
+      } else {
+        assert(old_class.is_null(), "sanity check");
+        dictionary()->add_klass(class_name, loader_data, new_class);
+        // after we add the klass into the dictionary,
+        // we mark this class as born.
+        new_class->set_born_rn(Javelus::system_revision_number() + 1);
+      }
+      SystemDictionary_lock->notify_all();
+    }
+  }
+}
+
+
+
 // Support parallel classloading
 // All parallel class loaders, including bootstrap classloader
 // lock a placeholder entry for this class/class_loader pair
@@ -2063,6 +2140,7 @@ void SystemDictionary::update_dictionary(int d_index, unsigned int d_hash,
   Klass* sd_check = find_class(d_index, d_hash, name, loader_data);
   if (sd_check == NULL) {
     dictionary()->add_klass(name, loader_data, k);
+    k->set_born_rn(Javelus::system_revision_number());
     notice_modification();
   }
 #ifdef ASSERT

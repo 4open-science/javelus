@@ -34,8 +34,24 @@ PRAGMA_FORMAT_MUTE_WARNINGS_FOR_GCC
 
 JNIHandleBlock* JNIHandles::_global_handles       = NULL;
 JNIHandleBlock* JNIHandles::_weak_global_handles  = NULL;
+JNIHandleBlock* JNIHandles::_weak_reflection_handles  = NULL;
+int             JNIHandles::_weak_reflection_modification_number = 0;
 oop             JNIHandles::_deleted_handle       = NULL;
 
+jobject JNIHandles::make_weak_reflection(Handle obj) {
+  assert(!Universe::heap()->is_gc_active(), "can't extend the root set during GC");
+  jobject res = NULL;
+  if (!obj.is_null()) {
+    // ignore null handles
+    MutexLocker ml(DSUReflection_lock);
+    assert(Universe::heap()->is_in_reserved(obj()), "sanity check");
+    res = _weak_reflection_handles->allocate_handle(obj());
+    _weak_reflection_modification_number = _weak_reflection_modification_number + 1;
+  } else {
+    CHECK_UNHANDLED_OOPS_ONLY(Thread::current()->clear_unhandled_oops());
+  }
+  return res;
+}
 
 jobject JNIHandles::make_local(oop obj) {
   if (obj == NULL) {
@@ -117,6 +133,13 @@ void JNIHandles::destroy_weak_global(jobject handle) {
   }
 }
 
+// TODO seems we never destroy a weak reflection
+void JNIHandles::destroy_weak_reflection(jobject handle) {
+  if (handle != NULL) {
+    assert(!CheckJNICalls || is_weak_reflection_handle(handle), "Invalid delete of weak reflection JNI handle");
+    *((oop*)handle) = deleted_handle(); // Mark the handle as deleted, allocate will reuse it
+  }
+}
 
 void JNIHandles::oops_do(OopClosure* f) {
   f->do_oop(&_deleted_handle);
@@ -132,6 +155,8 @@ void JNIHandles::weak_oops_do(BoolObjectClosure* is_alive, OopClosure* f) {
 void JNIHandles::initialize() {
   _global_handles      = JNIHandleBlock::allocate_block();
   _weak_global_handles = JNIHandleBlock::allocate_block();
+  
+  _weak_reflection_handles = JNIHandleBlock::allocate_block();
   EXCEPTION_MARK;
   // We will never reach the CATCH below since Exceptions::_throw will cause
   // the VM to exit if an exception is thrown during initialization
@@ -177,6 +202,10 @@ bool JNIHandles::is_weak_global_handle(jobject handle) {
   return _weak_global_handles->chain_contains(handle);
 }
 
+bool JNIHandles::is_weak_reflection_handle(jobject handle) {
+  return _weak_reflection_handles->chain_contains(handle);
+}
+
 long JNIHandles::global_handle_memory_usage() {
   return _global_handles->memory_usage();
 }
@@ -185,11 +214,22 @@ long JNIHandles::weak_global_handle_memory_usage() {
   return _weak_global_handles->memory_usage();
 }
 
+int JNIHandles::weak_reflection_modification_number(){
+  assert_locked_or_safepoint(DSUReflection_lock);
+  return _weak_reflection_modification_number;
+}
 
 class AlwaysAliveClosure: public BoolObjectClosure {
 public:
   bool do_object_b(oop obj) { return true; }
 };
+
+int JNIHandles::collect_changed_reflections(OopClosure* f){
+  MutexLocker ml(DSUReflection_lock);
+  AlwaysAliveClosure alwaysAlive;
+  _weak_reflection_handles->weak_oops_do_unsafe(&alwaysAlive, f);
+  return _weak_reflection_modification_number;
+}
 
 class CountHandleClosure: public OopClosure {
 private:
@@ -413,6 +453,34 @@ void JNIHandleBlock::weak_oops_do(BoolObjectClosure* is_alive,
   JvmtiExport::weak_oops_do(is_alive, f);
 }
 
+void JNIHandleBlock::weak_oops_do_unsafe(BoolObjectClosure* is_alive,
+                                  OopClosure* f){
+  for (JNIHandleBlock* current = this; current != NULL; current = current->_next) {
+    assert(current->pop_frame_link() == NULL,
+      "blocks holding weak global JNI handles should not have pop frame link set");
+    for (int index = 0; index < current->_top; index++) {
+      oop* root = &(current->_handles)[index];
+      oop value = *root;
+      // traverse heap pointers only, not deleted handles or free list pointers
+      if (value != NULL && Universe::heap()->is_in_reserved(value)) {
+        if (is_alive->do_object_b(value)) {
+          // The weakly referenced object is alive, update pointer
+          f->do_oop(root);
+        } else {
+          // The weakly referenced object is not alive, clear the reference by storing NULL
+          if (TraceReferenceGC) {
+            tty->print_cr("Clearing JNI weak reference (" INTPTR_FORMAT ")", root);
+          }
+          *root = NULL;
+        }
+      }
+    }
+    // the next handle block is valid only if current block is full
+    if (current->_top < block_size_in_oops) {
+      break;
+    }
+  }
+}
 
 jobject JNIHandleBlock::allocate_handle(oop obj) {
   assert(Universe::heap()->is_in_reserved(obj), "sanity check");

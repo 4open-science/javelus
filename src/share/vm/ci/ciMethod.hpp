@@ -56,6 +56,7 @@ class ciMethod : public ciMetadata {
  private:
   // General method information.
   ciFlags          _flags;
+  ciDSUFlags       _dsu_flags;
   ciSymbol*        _name;
   ciInstanceKlass* _holder;
   ciSignature*     _signature;
@@ -125,6 +126,7 @@ class ciMethod : public ciMetadata {
  public:
   // Basic method information.
   ciFlags flags() const                          { check_is_loaded(); return _flags; }
+  ciDSUFlags dsu_flags() const                   { check_is_loaded(); return _dsu_flags; }
   ciSymbol* name() const                         { return _name; }
   ciInstanceKlass* holder() const                { return _holder; }
   ciMethodData* method_data();
@@ -156,6 +158,8 @@ class ciMethod : public ciMetadata {
     }
   }
 
+  bool needs_mixed_object_check () const         { return dsu_flags().needs_mixed_object_check(); }
+  bool needs_stale_object_check () const         { return dsu_flags().needs_stale_object_check(); }
 
   // Method code and related information.
   address code()                                 { if (_code == NULL) load_code(); return _code; }

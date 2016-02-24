@@ -1268,7 +1268,7 @@ CMSCollector::allocation_limit_reached(Space* space, HeapWord* top,
 }
 
 oop ConcurrentMarkSweepGeneration::promote(oop obj, size_t obj_size) {
-  assert(obj_size == (size_t)obj->size(), "bad obj_size passed in");
+  assert(obj_size == (size_t)obj->size() || obj_size == (size_t)obj->copy_to_size(), "bad obj_size passed in");
   // allocate, copy and if necessary update promoinfo --
   // delegate to underlying space.
   assert_lock_strong(freelistLock());
