@@ -210,9 +210,9 @@ VtableStub* VtableStubs::create_itable_stub(int itable_index) {
 
   Label skip_check;
 
-  __ movptr(rdi, Address(rcx, oopDesc::klass_offset_in_bytes()));
-  __ movl(rdi, Address(rdi, Klass::dsu_flags_offset()));
-  __ andl(rdi, DSU_FLAGS_CLASS_IS_STALE_CLASS);
+  __ load_klass(r10, rcx);
+  __ movl(r11, Address(r10, Klass::dsu_flags_offset()));
+  __ andl(r11, DSU_FLAGS_CLASS_IS_STALE_CLASS);
   __ jcc(Assembler::zero, throw_icce);// not a invalid class, skip check and thro icce.
 
 
@@ -225,13 +225,12 @@ VtableStub* VtableStubs::create_itable_stub(int itable_index) {
 
 
   // XXX load klass again
-  // only rsi is dirty
-  __ movptr(rsi, Address(rcx, oopDesc::klass_offset_in_bytes()));
+  __ load_klass(r10, rcx);
 
   __ lookup_interface_method(// inputs: rec. class, interface, itable index
-                             rsi, rax, itable_index,
+                             r10, rax, itable_index,
                              // outputs: method, scan temp. reg
-                             method, rdi,
+                             method, r11,
                              throw_icce);
 
 

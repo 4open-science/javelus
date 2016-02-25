@@ -1500,6 +1500,11 @@ void JavaThread::initialize() {
   _popframe_preserved_args_size = 0;
   _frames_to_pop_failed_realloc = 0;
 
+  // DSU support
+  _current_revision = Javelus::system_revision_number();
+  _return_barrier_id = NULL;
+  _return_barrier_type = _no_return_barrier;
+
   pd_initialize();
 }
 

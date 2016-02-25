@@ -441,16 +441,19 @@ void DSUClass::set_check_flags_for_methods(InstanceKlass* old_version,
 
   for (int i = 0; i < length; i++) {
     Method* m = methods->at(i);
+    methodHandle mh(THREAD, m);
     if (m->name() == vmSymbols::class_initializer_name()) {
-          continue;
+      mh->link_method(mh, CHECK);
+      continue;
     }
 
     if (m->is_static()) {
+      mh->link_method(mh, CHECK);
       continue;
     }
 
     m->set_needs_stale_object_check();
-    m->link_method_with_dsu_check(methodHandle(THREAD, m), THREAD);
+    m->link_method_with_dsu_check(mh, CHECK);
   }
 }
 
@@ -649,6 +652,11 @@ void DSUClass::compute_and_set_fields(InstanceKlass* old_version,
   // compute
   compute_and_cache_common_info(old_version, new_version, CHECK);
 
+  if (!new_version->is_initialized()) {
+    typeArrayOop r = oopFactory::new_typeArray(T_INT, 0, CHECK);
+    java_lang_Class::set_init_lock(old_version->java_mirror(), r);
+  }
+
   bool do_print = false;/*old_version->name()->starts_with("org/apache/catalina/core/ContainerBase")*/;
 
   // We walk through the chain of evolution to find the minimal object size.
@@ -684,7 +692,6 @@ void DSUClass::compute_and_set_fields(InstanceKlass* old_version,
   const bool eager_update = this->dsu_class_loader()->dsu()->is_eager_update();
   const bool eager_update_pointers = this->dsu_class_loader()->dsu()->is_eager_update_pointer();
 
-  
   ConstantPool* old_constants = old_version->constants();
   ConstantPool* new_constants = new_version->constants();
 
@@ -699,7 +706,7 @@ void DSUClass::compute_and_set_fields(InstanceKlass* old_version,
     u4 n_offset     = new_field->offset();
     BasicType n_field_type = FieldType::basic_type(n_sig);
     int n_field_size = type2aelembytes(n_field_type);
-    int n_field_end    = n_offset + n_field_size;
+    int n_field_end  = n_offset + n_field_size;
 
     bool is_field_in_phantom_object = false;
 
@@ -750,12 +757,12 @@ void DSUClass::compute_and_set_fields(InstanceKlass* old_version,
           // a pair of matched instance fields
           // XXX flags may change,for example private => public
           // we use negative offset to indicate the field is in the phantom object.
-          if ((o_dsu_flag & DSU_FLAGS_MEMBER_NEEDS_MIXED_OBJECT_CHECK) == 0) {
+          if ((o_dsu_flag & DSU_FLAGS_MEMBER_NEEDS_MIXED_OBJECT_CHECK) != 0) {
             m_flags |= 0x01;
           }
 
           // we use negative offset to indicate the field is a MixNewField.
-          if ((n_dsu_flag & DSU_FLAGS_MEMBER_NEEDS_MIXED_OBJECT_CHECK) == 0) {
+          if ((n_dsu_flag & DSU_FLAGS_MEMBER_NEEDS_MIXED_OBJECT_CHECK) != 0) {
             m_flags |= 0x02;
           }
 
@@ -787,10 +794,12 @@ void DSUClass::compute_and_set_fields(InstanceKlass* old_version,
 
   compute_youngest_common_super_class(old_version, new_version, old_ycsc, new_ycsc, CHECK);
 
+  // TODO
   if (old_ycsc == new_ycsc) {
     this->set_old_ycsc(old_ycsc);
     this->set_new_ycsc(new_ycsc);
   } else {
+    assert(false, "seems impossible");
     this->set_old_ycsc(old_ycsc);
     this->set_new_ycsc(new_ycsc);
   }
@@ -971,6 +980,8 @@ DSUError DSUClass::prepare(TRAPS) {
 
   ret = refresh_updating_type(old_version, new_version, THREAD);
 
+  assert(updating_type() != DSU_CLASS_UNKNOWN, "sanity check");
+
   if (ret != DSU_ERROR_NONE) {
     return ret;
   }
@@ -1009,7 +1020,7 @@ DSUError DSUClass::prepare(TRAPS) {
       // TODO, The classes may require to relink.
       // Here, we only remove it from the class loader
       // and append it during collect_classes_to_relink
-      this->dsu_class_loader()->remove_class(this);
+      // this->dsu_class_loader()->remove_class(this);
       break;
     case DSU_CLASS_UNKNOWN:
       break;
@@ -1029,7 +1040,7 @@ DSUError DSUClass::prepare(TRAPS) {
 
 DSUError DSUClass::resolve_transformer(TRAPS) {
   InstanceKlass* transformer = dsu_class_loader()->transformer_class();
-  if (transformer != NULL) {
+  if (transformer == NULL) {
     return DSU_ERROR_NONE;
   }
   InstanceKlass* old_version = this->old_version_class();
@@ -1089,13 +1100,13 @@ DSUError DSUClass::resolve_transformer(TRAPS) {
 
 bool DSUClass::require_new_inplace_new_class(TRAPS) const {
   InstanceKlass* old_version = this->old_version_class();
-  if (old_version != NULL) {
+  if (old_version == NULL) {
     return false;
   }
 
   InstanceKlass* new_version = new_version_class();
 
-  if (new_version != NULL) {
+  if (new_version == NULL) {
     return false;
   }
 
@@ -1124,7 +1135,7 @@ bool DSUClass::require_new_inplace_new_class(TRAPS) const {
 // then, we will invoke transformer on it.
 bool DSUClass::require_stale_new_class(TRAPS) const{
   InstanceKlass* new_version = this->new_version_class();
-  if (new_version != NULL) {
+  if (new_version == NULL) {
     return false;
   }
 
@@ -1157,9 +1168,7 @@ DSUError DSUClass::build_new_inplace_new_class_if_necessary(TRAPS) {
   OopMapBlock* inplace_map = new_inplace_new_class->start_of_nonstatic_oop_maps();
   const int oop_map_count  = new_version->nonstatic_oop_map_count();
 
-  if (UseCompressedOops) {
-    ShouldNotReachHere();
-  } else {
+  {
     for(int i=0; i< oop_map_count; i++) {
       int off_start = oop_map[i].offset();
       int off_count =  oop_map[i].count();
@@ -1223,12 +1232,12 @@ DSUError DSUClass::refresh_updating_type(InstanceKlass* old_version, InstanceKla
     return DSU_ERROR_NONE;
   }
 
-  if (old_version != NULL) {
+  if (old_version == NULL) {
     // old class has not been resolved
     return DSU_ERROR_RESOLVE_OLD_CLASS;
   }
 
-  if (new_version != NULL) {
+  if (new_version == NULL) {
     // error here, new classes must be loaded here.
     return DSU_ERROR_RESOLVE_NEW_CLASS;
   }
@@ -2158,6 +2167,8 @@ void DSUClass::post_fix_new_version(InstanceKlass* old_version,
       method->set_needs_mixed_object_check();
     }
   }
+  // TODO
+  set_check_flags_for_methods(old_version, new_version, CHECK);
 
   InstanceKlass* superik = new_version->superklass();
   assert(superik != NULL, "should not be null");
@@ -2172,6 +2183,7 @@ void DSUClass::post_fix_new_version(InstanceKlass* old_version,
   oop java_mirror = old_version->java_mirror();
   new_version->set_java_mirror(java_mirror);
   java_lang_Class::set_klass(java_mirror, new_version);
+
 
   //new_version->set_java_mirror(old_version->java_mirror());
 
@@ -3202,7 +3214,7 @@ DSUBuilder::~DSUBuilder() {
   }
 }
 
-DSU* DSUBuilder::dsu() const{
+DSU* DSUBuilder::dsu() const {
   assert(_dsu != NULL, "instantiate before using.");
   return _dsu;
 }
@@ -3845,7 +3857,7 @@ DSUError DSUClassLoader::prepare(TRAPS) {
   resolve(CHECK_(DSU_ERROR_RESOLVE_CLASS_LOADER_FAILED));
 
   // than prepare all classes
-  for (DSUClass* dsu_class = first_class(); dsu_class!=NULL; dsu_class=dsu_class->next()) {
+  for (DSUClass* dsu_class = first_class(); dsu_class != NULL; dsu_class = dsu_class->next()) {
     DSUError ret = dsu_class->prepare(THREAD);
 
     if (ret != DSU_ERROR_NONE) {
@@ -3856,6 +3868,8 @@ DSUError DSUClassLoader::prepare(TRAPS) {
       return DSU_ERROR_PREPARE_DSUCLASS;;
     }
   }
+
+  remove_unchanged_classes();
 
   return DSU_ERROR_NONE;
 }
@@ -3874,7 +3888,11 @@ bool DSUClassLoader::resolved() {
 }
 
 void DSUClassLoader::resolve(TRAPS) {
-  if (id() != NULL) {
+  if (_loader_data != NULL) {
+    return;
+  }
+  assert(id() != NULL, "sanity check");
+  if (id()->utf8_length() == 0) {
     // bind to the system class loader;
     HandleMark hm(THREAD);
     set_class_loader_data(ClassLoaderData::class_loader_data(SystemDictionary::java_system_loader()));
@@ -4062,6 +4080,10 @@ DSUError  DSUClassLoader::load_new_version(Symbol* name, InstanceKlass* &new_cla
     }
   }
 
+  // need link methods
+  new_class->link_methods(CHECK_(DSU_ERROR_REWRITER));
+
+
   {
     ResourceMark rm(THREAD);
     // no exception should happen here since we explicitly
@@ -4096,33 +4118,41 @@ void DSUClassLoader::add_class(DSUClass * klass) {
   }
 }
 
-void DSUClassLoader::remove_class(DSUClass * klass) {
+void DSUClassLoader::remove_unchanged_classes() {
   if (_first_class == NULL) {
-    // we cannot remove a class from an empty class loader.
-    ShouldNotReachHere();
-  } else if (_first_class == klass) {
+    return;
+  } else if (_first_class == _last_class) {
     // remove the first one
-    _first_class = _first_class->next();
-    if (_last_class == klass) {
-      _last_class = NULL;
+    if (_first_class->prepared() && _first_class->updating_type() == DSU_CLASS_NONE) {
+      delete _first_class;
+      _first_class = _last_class = NULL;
     }
-    delete klass;
   } else {
     DSUClass *p = _first_class->next();
     DSUClass *q = _first_class;
     // p is next
     // q is previous
     while(p != NULL) {
-      if (p == klass) {
+      if (p->prepared() && p->updating_type() == DSU_CLASS_NONE) {
         q->set_next(p->next());
-        delete klass;
-        klass = NULL;
-        break;
+        if (_last_class == p) {
+          _last_class = q;
+        }
+        delete p;
+        p = q->next();
+      } else {
+        q = p;
+        p = p->next();
       }
-      q = p;
-      p = p->next();
     }
-    assert(klass == NULL, "sanity check");
+    q = _first_class;
+    if (q->prepared() && q->updating_type() == DSU_CLASS_NONE) {
+      _first_class = q->next();
+      delete q;
+      if (_first_class == NULL) {
+        _last_class = NULL;
+      }
+    }
   }
 }
 
@@ -4131,7 +4161,7 @@ void DSUClassLoader::remove_class(DSUClass * klass) {
 DSUClass::DSUClass()
 : _next(NULL),
   _dsu_class_loader(NULL),
-  _updating_type(DSU_CLASS_NONE),
+  _updating_type(DSU_CLASS_UNKNOWN),
   _prepared(false),
   _stream_provider(NULL),
   _name(NULL),
@@ -4403,7 +4433,7 @@ JVM_ENTRY(jobject, ReplaceObject(JNIEnv *env, jclass clas, jobject old_o, jobjec
     o_phantom = Handle(THREAD, (oop) o->mark()->decode_phantom_object_pointer());
   }
 
-  Javelus::copy_fields(n, o, o_phantom, ik, THREAD);
+  Javelus::copy_fields(n(), o(), o_phantom(), ik);
   return JNIHandles::make_local(env, old_obj);
 
 JVM_END
@@ -5372,10 +5402,10 @@ InstanceKlass* Javelus::resolve_dsu_klass_or_null(Symbol* class_name, ClassLoade
     //assert(THREAD->is_DSU_thread(),"must be dsu thread");
     unsigned int d_hash = dictionary()->compute_hash(class_name, loader_data);
     int d_index = dictionary()->hash_to_index(d_hash);
-    InstanceKlass* probe = InstanceKlass::cast(dictionary()->find(d_index, d_hash, class_name, loader_data, protection_domain, THREAD));
+    Klass* probe = dictionary()->find(d_index, d_hash, class_name, loader_data, protection_domain, CHECK_NULL);
 
     if (probe != NULL ) {
-      return probe;
+      return InstanceKlass::cast(probe);
     }
 
     // Check DSUClass again
@@ -5643,7 +5673,7 @@ void Javelus::repair_application_threads() {
 }
 
 void Javelus::transform_object(Handle h, TRAPS) {
-
+  Javelus::transform_object_common(h, CHECK);
 }
 
 // XXX Notice the thread is the first argument
@@ -5746,7 +5776,7 @@ bool Javelus::transform_object_common_no_lock(Handle stale_object, TRAPS){
                 old_phantom_object,
                 new_phantom_object,
                 old_phantom_klass,
-                new_inplace_klass,
+                new_phantom_klass,
                 new_phantom_klass,
                 CHECK_false);
             }
@@ -5760,7 +5790,7 @@ bool Javelus::transform_object_common_no_lock(Handle stale_object, TRAPS){
               old_phantom_object,
               stale_object,
               old_inplace_klass,
-              old_phantom_klass,
+              new_phantom_klass,
               new_phantom_klass,
               CHECK_false);
           }
@@ -5801,7 +5831,7 @@ bool Javelus::transform_object_common_no_lock(Handle stale_object, TRAPS){
               stale_object,
               stale_object,
               old_phantom_klass,
-              new_inplace_klass,
+              new_phantom_klass,
               new_phantom_klass,
               CHECK_false);
           }
@@ -5813,7 +5843,7 @@ bool Javelus::transform_object_common_no_lock(Handle stale_object, TRAPS){
       }
     } // end of while
   }// end of block
-
+  assert(stale_object->klass() != NULL, "sanity check");
   return transformed;
 }
 
@@ -5934,8 +5964,8 @@ void collect_transformer_arguments(JavaCallArguments &args, Handle inplace_objec
 
 void run_default_transformer(Handle inplace_object, Handle old_phantom_object, Handle new_phantom_object,
      InstanceKlass* old_phantom_klass, InstanceKlass* new_phantom_klass, TRAPS) {
-  Array<u1>* match_fields = new_phantom_klass->matched_fields();
-  if (match_fields == NULL) {
+  Array<u1>* matched_fields = new_phantom_klass->matched_fields();
+  if (matched_fields == NULL) {
     return;
   }
 
@@ -5951,6 +5981,7 @@ void run_default_transformer(Handle inplace_object, Handle old_phantom_object, H
   bool reallocate_inplace = to_simple && new_phantom_size_in_bytes < old_inplace_size_in_bytes;
   bool reallocate_phantom = !from_simple && !to_simple && old_phantom_object == new_phantom_object && new_phantom_size_in_bytes < old_phantom_size_in_bytes;
 
+  ResourceMark rm(THREAD);
   char *prototype_c = NEW_RESOURCE_ARRAY(char, new_phantom_size_in_bytes);
 
   // Allocate an clean oop
@@ -5962,18 +5993,17 @@ void run_default_transformer(Handle inplace_object, Handle old_phantom_object, H
   // this object is still stale but in the new type
   prototype_oop->set_klass(old_phantom_klass->stale_new_class());
 
-  int length = match_fields->length();
+  int length = matched_fields->length();
   //2.1). first pass copy match fields to prototype (include fields declared in super class)
   for (int i = 0; i < length; i += DSUClass::next_matched_field){
-    u4 o_offset   = build_u4_from(match_fields->adr_at(i + DSUClass::matched_field_old_offset));
-    u4 n_offset   = build_u4_from(match_fields->adr_at(i + DSUClass::matched_field_new_offset));
-    BasicType type = (BasicType) match_fields->at(i + DSUClass::matched_field_type);
-    u1 flags = match_fields->at(i + DSUClass::matched_field_flags);
+    u4 o_offset   = build_u4_from(matched_fields->adr_at(i + DSUClass::matched_field_old_offset));
+    u4 n_offset   = build_u4_from(matched_fields->adr_at(i + DSUClass::matched_field_new_offset));
+    BasicType type = (BasicType) matched_fields->at(i + DSUClass::matched_field_type);
+    u1 flags = matched_fields->at(i + DSUClass::matched_field_flags);
     if ((flags & 0x04) != 0) {
       // after all before fields are copied, we can clear memory (inplace_object_size - ycsc_object_size)
-      assert(o_offset > 0 && n_offset > 0, "invairiant");
       memset(((char*)inplace_object()) + o_offset, 0, (int)n_offset);
-    } else if ((flags & 0x01) != 0){
+    } else if ((flags & 0x01) != 0) {
       Javelus::copy_field(inplace_object(), prototype_oop, o_offset, n_offset, type);
     } else {
       Javelus::copy_field(old_phantom_object(), prototype_oop, o_offset, n_offset, type);
@@ -6008,16 +6038,16 @@ void run_default_transformer(Handle inplace_object, Handle old_phantom_object, H
 
   //2.2). second pass copy all fields from prototype to new object
   for (int i = 0; i < length; i += DSUClass::next_matched_field) {
-    u4 o_offset   = build_u4_from(match_fields->adr_at(i + DSUClass::matched_field_old_offset));
-    u4 n_offset   = build_u4_from(match_fields->adr_at(i + DSUClass::matched_field_new_offset));
-    BasicType type = (BasicType) match_fields->at(i + DSUClass::matched_field_type);
-    u1 flags = match_fields->at(i + DSUClass::matched_field_flags);
+    u4 o_offset   = build_u4_from(matched_fields->adr_at(i + DSUClass::matched_field_old_offset));
+    u4 n_offset   = build_u4_from(matched_fields->adr_at(i + DSUClass::matched_field_new_offset));
+    BasicType type = (BasicType) matched_fields->at(i + DSUClass::matched_field_type);
+    u1 flags = matched_fields->at(i + DSUClass::matched_field_flags);
     if ((flags & 0x04) != 0) {
       continue;
     } else if ((flags & 0x02) != 0) { // new field is in the mixed object
-      Javelus::copy_field(prototype_oop, new_phantom_object, o_offset, n_offset, type);
+      Javelus::copy_field(prototype_oop, new_phantom_object(), n_offset, n_offset, type);
     } else {
-      Javelus::copy_field(prototype_oop, inplace_object, o_offset, n_offset, type);
+      Javelus::copy_field(prototype_oop, inplace_object(), n_offset, n_offset, type);
     }
   }
 }
@@ -6045,6 +6075,11 @@ void Javelus::run_transformer(Handle inplace_object, Handle old_phantom_object, 
   InstanceKlass* new_phantom_klass, TRAPS) {
 
   assert(old_phantom_klass->is_stale_class(), "only invalid class can be transformed!");
+  assert(inplace_object.not_null(), "sanity check!");
+  assert(old_phantom_object.not_null(), "sanity check");
+  assert(new_phantom_object.not_null(), "sanity check");
+  assert(old_phantom_klass != NULL, "sanity check!");
+  assert(new_inplace_klass != NULL, "sanity check!");
   assert(new_phantom_klass != NULL, "next instanceKlass must not be null");
 
   Method* object_transformer = new_phantom_klass->object_transformer();
@@ -6060,7 +6095,6 @@ void Javelus::run_transformer(Handle inplace_object, Handle old_phantom_object, 
   run_default_transformer(inplace_object, inplace_object, new_phantom_object, old_phantom_klass, new_phantom_klass, CHECK);
   run_custom_transformer(inplace_object, old_phantom_klass, object_transformer, args, THREAD);
 
-  assert(new_inplace_klass != NULL, "sanity check!");
   inplace_object->set_klass(new_inplace_klass);
 }
 
@@ -6342,7 +6376,7 @@ void Javelus::copy_fields(oop src, oop dst, InstanceKlass* ik) {
     Symbol* s_sig = field_info->signature(ik->constants());
 
     BasicType type = FieldType::basic_type(s_sig);
-    assert((i_dsu_flags & DSU_FLAGS_MEMBER_NEEDS_MIXED_OBJECT_CHECK) == 0,"No field in the phantom object here.");
+    assert((i_dsu_flags & DSU_FLAGS_MEMBER_NEEDS_MIXED_OBJECT_CHECK) == 0, "No field in the phantom object here.");
 
     switch(type) {
     case T_BOOLEAN:
@@ -6382,28 +6416,6 @@ void Javelus::copy_fields(oop src, oop dst, InstanceKlass* ik) {
 }
 
 
-void Javelus::copy_fields(Handle src, Handle dst, InstanceKlass* ik, TRAPS) {
-  FieldInfo* field_info = NULL;
-  int new_field_count = ik->java_fields_count();
-  ConstantPool* constants = ik->constants();
-  for (int i = 0; i < new_field_count; i++) {
-    field_info = ik->field(i);
-    int i_flags  = field_info->access_flags();
-    int i_dsu_flags  = 0;
-
-    if ((i_flags & JVM_ACC_STATIC) != 0) {
-      // skip static field
-      continue;
-    }
-
-    u4 offset   = field_info->offset();
-    Symbol* s_sig = field_info->signature(ik->constants());
-
-    BasicType type = FieldType::basic_type(s_sig);
-    assert((i_dsu_flags & DSU_FLAGS_MEMBER_NEEDS_MIXED_OBJECT_CHECK) == 0,"No field in the phantom object here.");
-    Javelus::copy_field(src, dst, offset, offset, type);
-  }
-}
 
 void Javelus::copy_fields(oop src, oop dst, oop mix_dst, InstanceKlass* ik) {
   FieldInfo* field_info = NULL;
@@ -6423,7 +6435,7 @@ void Javelus::copy_fields(oop src, oop dst, oop mix_dst, InstanceKlass* ik) {
     Symbol* s_sig = field_info->signature(ik->constants());
 
     BasicType type = FieldType::basic_type(s_sig);
-    assert((i_dsu_flags & DSU_FLAGS_MEMBER_NEEDS_MIXED_OBJECT_CHECK) == 0,"No field in the phantom object here.");
+    assert((i_dsu_flags & DSU_FLAGS_MEMBER_NEEDS_MIXED_OBJECT_CHECK) == 0, "No field in the phantom object here.");
     if ((i_dsu_flags & DSU_FLAGS_MEMBER_NEEDS_MIXED_OBJECT_CHECK) == 0) {
       Javelus::copy_field(src, dst, offset, offset, type);
     } else {
@@ -6432,34 +6444,6 @@ void Javelus::copy_fields(oop src, oop dst, oop mix_dst, InstanceKlass* ik) {
   }
 }
 
-// copy field from src to dst
-// src MUST not be MixObjects
-// dst MAY be MixObjects
-void Javelus::copy_fields(Handle src, Handle dst, Handle mix_dst, InstanceKlass* ik, TRAPS) {
-  FieldInfo* field_info = NULL;
-  int new_field_count = ik->java_fields_count();
-  ConstantPool* constants = ik->constants();
-  for (int i = 0; i < new_field_count; i++) {
-    field_info = ik->field(i);
-    int i_flags  = field_info->access_flags();
-    int i_dsu_flags  = 0;
-    if ((i_flags & JVM_ACC_STATIC) != 0) {
-      // skip static field
-      continue;
-    }
-
-    u4 offset   = field_info->offset();
-    Symbol* s_sig = field_info->signature(ik->constants());
-
-    BasicType type = FieldType::basic_type(s_sig);
-    assert((i_dsu_flags & DSU_FLAGS_MEMBER_NEEDS_MIXED_OBJECT_CHECK) == 0,"No field in the phantom object here.");
-    if ((i_dsu_flags & DSU_FLAGS_MEMBER_NEEDS_MIXED_OBJECT_CHECK) == 0) {
-      Javelus::copy_field(src, dst, offset, offset, type);
-    } else {
-      Javelus::copy_field(src, mix_dst, offset, offset, type);
-    }
-  }
-}
 
 void Javelus::realloc_decreased_object(Handle obj, int old_size_in_bytes, int new_size_in_bytes) {
   assert(obj->is_instance(),"we can only update instance objects.");
@@ -6519,42 +6503,6 @@ void Javelus::copy_field(oop src, oop dst, int src_offset, int dst_offset, Basic
   }
 }
 
-void Javelus::copy_field(Handle src, Handle dst, int src_offset, int dst_offset, BasicType type) {
-  switch(type) {
-  case T_BOOLEAN:
-    dst->bool_field_put(dst_offset, src->bool_field(src_offset));
-    break;
-  case T_BYTE:
-    dst->byte_field_put(dst_offset, src->byte_field(src_offset));
-    break;
-  case T_SHORT:
-    dst->short_field_put(dst_offset, src->short_field(src_offset));
-    break;
-  case T_CHAR:
-    dst->char_field_put(dst_offset, src->char_field(src_offset));
-    break;
-  case T_OBJECT:
-  case T_ARRAY:
-    dst->obj_field_put(dst_offset, src->obj_field(src_offset));
-    break;
-  case T_INT:
-    dst->int_field_put(dst_offset, src->int_field(src_offset));
-    break;
-  case T_LONG:
-    dst->long_field_put(dst_offset, src->long_field(src_offset));
-    break;
-  case T_FLOAT:
-    dst->float_field_put(dst_offset, src->float_field(src_offset));
-    break;
-  case T_DOUBLE:
-    dst->double_field_put(dst_offset, src->double_field(src_offset));
-    break;
-  case T_VOID:
-    break;
-  default:
-    ShouldNotReachHere();
-  }
-}
 
 void Javelus::read_value(Handle obj, int offset, BasicType type, JavaValue &result,TRAPS) {
   result.set_type(type);

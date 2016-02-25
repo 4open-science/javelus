@@ -341,8 +341,8 @@ InstanceKlass::InstanceKlass(int vtable_len,
   NOT_PRODUCT(_verify_count = 0;)
 
   // DSU support
-  set_born_rn(0);
-  set_dead_rn(0);
+  set_born_rn(Javelus::MIN_REVISION_NUMBER);
+  set_dead_rn(Javelus::MAX_REVISION_NUMBER);
   set_copy_to_size(0);
   set_dsu_state(0);
   set_previous_version(NULL);
@@ -3386,7 +3386,9 @@ void InstanceKlass::verify_on(outputStream* st) {
   if (_verify_count == Universe::verify_count()) return;
   _verify_count = Universe::verify_count();
 #endif
-
+  if (this->dsu_flags().as_int() != 0) {
+    return;
+  }
   // Verify Klass
   Klass::verify_on(st);
 

@@ -666,7 +666,7 @@ public:
   DSUClass *first_class() const { return _first_class; }
   DSUClass *last_class() const { return _last_class; }
   void add_class(DSUClass* klass);
-  void remove_class(DSUClass* klass);
+  void remove_unchanged_classes();
 
   bool resolve_transformer(Symbol* transformer_name, TRAPS);
 
@@ -1050,9 +1050,6 @@ public:
   static void copy_fields(oop src, oop dst, oop mix_dst, InstanceKlass* ik);
   static void copy_field(oop src, oop dst, int src_offset, int dst_offset, BasicType type);
 
-  static void copy_fields(Handle src, Handle dst, InstanceKlass* ikh,TRAPS);
-  static void copy_fields(Handle src, Handle dst, Handle mix_dst, InstanceKlass* ikh,TRAPS);
-  static void copy_field(Handle src, Handle dst, int src_offset, int dst_offset, BasicType type);
   static void read_value(Handle obj, int offset, BasicType type, JavaValue &result,TRAPS);
   static void read_arg(Handle obj, int offset, BasicType type, JavaCallArguments &args,TRAPS);
 

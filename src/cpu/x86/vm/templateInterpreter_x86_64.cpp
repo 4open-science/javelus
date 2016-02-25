@@ -225,8 +225,8 @@ address TemplateInterpreterGenerator::generate_return_with_barrier_entry_for(Tos
     Label L;
     __ cmpptr(Address(r15_thread, JavaThread::return_barrier_id_offset()), (int32_t) NULL_WORD);
     __ jcc(Assembler::zero, L);
-    __ call_VM(noreg, CAST_FROM_FN_PTR(address, InterpreterRuntime::invoke_return_barrier));
     __ stop("Not implemented yet, we should preserve return value.");
+    __ call_VM(noreg, CAST_FROM_FN_PTR(address, InterpreterRuntime::invoke_return_barrier));
     __ bind(L);
   }
   __ dispatch_next(state, step);
@@ -754,7 +754,7 @@ address InterpreterGenerator::generate_accessor_entry(void) {
     __ andl(rdi, 0x01);
     __ jcc(Assembler::zero, noCheck);
 
-    __ movptr(rdi, Address(rax, oopDesc::klass_offset_in_bytes()));
+    __ load_klass(rdi, rax);
     __ movl(rdi, Address(rdi, Klass::dsu_flags_offset()));
     __ andl(rdi, DSU_FLAGS_CLASS_IS_STALE_CLASS);
     __ jcc(Assembler::zero, notStale); // not a invalid class, skip update.
@@ -771,14 +771,14 @@ address InterpreterGenerator::generate_accessor_entry(void) {
     __ jcc(Assembler::zero, noCheck);
 
     Address mark_word = Address(rax, 0);
-    __ movl(rdi, mark_word);
-    __ andl(rdi, markOopDesc::mixed_object_mask_in_place);
-    __ cmpl(rdi, markOopDesc::mixed_object_value);
+    __ movptr(rdi, mark_word);
+    __ movptr(rdi, markOopDesc::mixed_object_mask_in_place);
+    __ movptr(rdi, markOopDesc::mixed_object_value);
 
     __ jcc(Assembler::notEqual, noCheck);
 
-    __ movl(rax, mark_word);
-    __ andl(rax, ~markOopDesc::mixed_object_mask_in_place);
+    __ movptr(rax, mark_word);
+    __ movptr(rax, ~markOopDesc::mixed_object_mask_in_place);
 
     __ bind(noCheck);
 
@@ -1536,13 +1536,13 @@ address InterpreterGenerator::generate_dsu_method_entry(AbstractInterpreter::Met
   }
 
   // load klass and test
-  __ movptr(rcx, Address(rcx, oopDesc::klass_offset_in_bytes()));
+  __ load_klass(rdx, rcx);
   __ verify_oop(rdx);
   __ movl(rdx, Address(rdx, Klass::dsu_flags_offset()));
   __ andl(rdx, DSU_FLAGS_CLASS_IS_STALE_CLASS);
 
   // Here caller can only be interpreted frame.
-  __ jcc(Assembler::zero, no_update);// not an invalid class, skip update.
+  __ jcc(Assembler::zero, no_update);// not a stale class, skip update.
 
   // save sender sp, because the c2i entry may ..
   __ restore_bcp();                              // rsi points to call/send

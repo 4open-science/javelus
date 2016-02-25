@@ -809,7 +809,7 @@ IRT_ENTRY(void, InterpreterRuntime::update_stale_object_and_reresolve_method(Jav
     break;
   default:  ShouldNotReachHere();
   }
-  thread->set_vm_result_2(info.resolved_method()());
+  thread->set_vm_result_2(info.selected_method()());
 }
 IRT_END
 
