@@ -27,26 +27,34 @@
 #include "prims/jvm.h"
 #include "utilities/top.hpp"
 
-typedef enum {
-  dsu_none = 0,
-  dsu_will_be_added ,
-  dsu_will_be_recompiled,
-  dsu_will_be_swapped,
-  dsu_will_be_redefined,
-  dsu_will_be_deleted,
-  dsu_has_been_added,
-  dsu_has_been_recompiled,
-  dsu_has_been_swapped,
-  dsu_has_been_redefined,
-  dsu_has_been_deleted,
-} DSUState;
 
-typedef enum TransfomationLevel {
-  no_transformation      = 0,
-  replace_klass          = 1,
-  default_transformation = 2,
-  custom_transformation  = 3,
-} TransfomationLevel;
+class DSUState {
+public:
+  enum {
+    dsu_none = 0,
+    dsu_will_be_added ,
+    dsu_will_be_recompiled,
+    dsu_will_be_swapped,
+    dsu_will_be_redefined,
+    dsu_will_be_deleted,
+    dsu_has_been_added,
+    dsu_has_been_recompiled,
+    dsu_has_been_swapped,
+    dsu_has_been_redefined,
+    dsu_has_been_deleted,
+  };
+};
+
+class TransfomationLevel {
+public:
+  enum {
+    no_transformation      = 0,
+    replace_klass          = 1,
+    default_transformation = 2,
+    custom_transformation  = 3,
+  };
+
+};
 
 enum {
   DSU_FLAGS_MEMBER_NEEDS_STALE_OBJECT_CHECK       = 0x00000001, // this member is subjected to stale object check.
