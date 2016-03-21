@@ -785,7 +785,7 @@ void DSUClass::compute_and_set_fields(InstanceKlass* old_version,
           match_fields[match_instance_index + DSUClass::matched_field_type] = n_field_type;
           break;
         } else {
-          tty->print_cr("[DSU] Matched fields flags changed. [%s %s %s].", new_version->name()->as_C_string(),o_name->as_C_string(),o_sig->as_C_string());
+          DSU_WARN(("Matched fields flags changed. [%s %s %s].", new_version->name()->as_C_string(),o_name->as_C_string(),o_sig->as_C_string()));
         }
       }// end of find a matched fields
     }// end of search matched fields
@@ -803,14 +803,16 @@ void DSUClass::compute_and_set_fields(InstanceKlass* old_version,
     this->set_old_ycsc(old_ycsc);
     this->set_new_ycsc(new_ycsc);
   } else {
-    assert(false, "seems impossible");
     this->set_old_ycsc(old_ycsc);
     this->set_new_ycsc(new_ycsc);
   }
 
+  assert(old_ycsc != NULL, "sanity check");
+  assert(new_ycsc != NULL, "sanity check");
+
   // Start of setting matched instance fields
   // Direct super of new class
-  InstanceKlass* super_old = InstanceKlass::cast( old_version->super());
+  InstanceKlass* super_old = InstanceKlass::cast(old_version->super());
   Array<u1>*     super_matched_fields = new_ycsc->matched_fields();
 
   int match_instance_length = 0; // total array length
@@ -877,10 +879,10 @@ void DSUClass::compute_and_set_fields(InstanceKlass* old_version,
       }
     }
   }
- 
+
   int instance_header_size_in_bytes = instanceOopDesc::header_size() << LogBytesPerWord;
 
-  InstanceKlass* super  = InstanceKlass::cast( new_version->super());
+  InstanceKlass* super  = InstanceKlass::cast(new_version->super());
   // size in bytes
   const int new_super_object_size = super->size_helper() << LogBytesPerWord;
   int super_delta = new_super_object_size - instance_header_size_in_bytes;
@@ -902,7 +904,7 @@ void DSUClass::compute_and_set_fields(InstanceKlass* old_version,
   if (inplace_count > 0) {
     Array<u1>* n_inplace_fields = MetadataFactory::new_array<u1>(new_version->class_loader_data(), inplace_count, CHECK);
     if (super_inplace_count > 0) {
-      if (super_inplace_fields == NULL) {
+      if (super_inplace_fields != NULL) {
         memcpy(n_inplace_fields->adr_at(0), super_inplace_fields->adr_at(0), super_inplace_count*sizeof(u1));
       } else {
         //
@@ -2370,8 +2372,8 @@ DSUClassLoader* DSU::allocate_class_loader(Symbol* id, Symbol* lid, TRAPS) {
 
 
 DSU::~DSU() {
-  DSUClassLoader* p = first_class_loader();
-  while(p != NULL) {
+  DSUClassLoader* p = _first_class_loader;
+  while (p != NULL) {
     DSUClassLoader * q = p;
     p = p->next();
     delete q;
@@ -5272,7 +5274,6 @@ void Javelus::update_single_thread (JavaThread* thread) {
 
     //Fetche installed return barrier id.
     intptr_t * barrier = thread->return_barrier_id();
-    // do actually installation
     if (barrier != NULL) {
       Javelus::install_return_barrier_single_thread(thread,barrier);
     }

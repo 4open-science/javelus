@@ -79,9 +79,9 @@ bool VM_DSUOperation::verify_dsu(TRAPS) {
   DSUClassLoader *dsu_loader = _dsu->first_class_loader();
   int to_be_updated = 0;
   for (; dsu_loader != NULL; dsu_loader = dsu_loader->next()) {
-    DSUClass* dsu_class = dsu_loader->first_class();    
+    DSUClass* dsu_class = dsu_loader->first_class();
     for (;dsu_class != NULL; dsu_class=dsu_class->next()) {
-      to_be_updated++;      
+      to_be_updated++;
       if (dsu_class == NULL) {
         DSU_TRACE_MESG(("Null DSUClass!"));
         return false;
@@ -183,12 +183,14 @@ void eager_initialize_added_class (DSUClass * dsu_class, TRAPS) {
 }
 
 void VM_DSUOperation::doit_epilogue() {
-// clean work to be implemented
+#if 0
+  // clean work to be implemented
   if (_res == DSU_ERROR_NONE) {
     // Eager initialize added class for Chun Cao's loong projects
     Thread* thread = Thread::current();
     dsu()->classes_do(eager_initialize_added_class, thread);
   }
+#endif
 }
 
 
