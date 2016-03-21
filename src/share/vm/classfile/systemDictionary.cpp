@@ -328,6 +328,8 @@ Klass* SystemDictionary::resolve_super_or_fail(Symbol* child_name,
     if (super_dsu != NULL && super_dsu->require_new_version()) {
       THROW_MSG_NULL(vmSymbols::java_lang_NoClassDefFoundError(), class_name->as_C_string());
     }
+
+
   }
 
   // Double-check, if child class is already loaded, just return super-class,interface

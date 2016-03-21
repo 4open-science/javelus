@@ -381,6 +381,10 @@ DSUError DSUClass::resolve_new_version_by_dsu_thread(InstanceKlass* &new_version
 
   DSUError ret = dsu_class_loader()->load_new_version(class_name, new_version, stream_provider(), CHECK_(DSU_ERROR_RESOLVE_NEW_CLASS));
 
+  if (ret != DSU_ERROR_NONE) {
+    return ret;
+  }
+
   if (new_version != NULL) {
     set_new_version(new_version);
     Javelus::add_dsu_klass(new_version,THREAD);
@@ -4089,10 +4093,23 @@ DSUError  DSUClassLoader::load_new_version(Symbol* name, InstanceKlass* &new_cla
   DSUClassLoader* super_dsu_class_loader = dsu()->find_class_loader_by_loader(loader_data->class_loader());
   if (super_dsu_class_loader != NULL) {
     DSUClass* super_dsu_class = super_dsu_class_loader->find_class_by_name(new_super_name);
-    if (super_dsu_class == NULL) {
-      if (!new_super->is_initialized()) {
+    if (super_dsu_class == NULL) {  // a class not in dynamic patch
+      if (!new_super->is_linked()) {
         return DSU_ERROR_TO_BE_ADDED;
       }
+    } else if (!super_dsu_class->require_old_version()) { // another added class in dynamic patch
+      if (!new_super->is_linked()) {
+        return DSU_ERROR_TO_BE_ADDED;
+      }
+    } else { // a redefined class in dynamic patch
+      if (!new_super->is_linked()) {
+        return DSU_ERROR_TO_BE_ADDED;
+      }
+    }
+  } else {
+    // a class not in dynamic patch
+    if (!new_super->is_linked()) {
+      return DSU_ERROR_TO_BE_ADDED;
     }
   }
 
@@ -4111,7 +4128,7 @@ DSUError  DSUClassLoader::load_new_version(Symbol* name, InstanceKlass* &new_cla
   // need link methods
   new_class->link_methods(CHECK_(DSU_ERROR_REWRITER));
 
-
+  assert(new_super->is_linked(), "sanity check");
   {
     ResourceMark rm(THREAD);
     // no exception should happen here since we explicitly
