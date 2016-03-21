@@ -1587,6 +1587,9 @@ DSUError DSUClass::compare_and_normalize_class(InstanceKlass* old_version,
 }
 
 void DSUClass::update(TRAPS) {
+  if (!prepared()) {
+    return;
+  }
   DSUClassUpdatingType updating_type = this->updating_type();
 
   InstanceKlass* klass = NULL;

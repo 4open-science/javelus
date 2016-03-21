@@ -173,10 +173,11 @@ void VM_DSUOperation::doit() {
 
 
 void eager_initialize_added_class (DSUClass * dsu_class, TRAPS) {
-  if (dsu_class->updating_type() == DSU_CLASS_ADD) {
+  if (dsu_class->updating_type() == DSU_CLASS_ADD && dsu_class->prepared()) {
     ResourceMark rm(THREAD);
-    DSU_TRACE_MESG(("Eagerly initialize an added class %s.", dsu_class->name()->as_C_string()));
     instanceKlassHandle new_version (THREAD, dsu_class->new_version_class());
+    assert(new_version.not_null(), "sanity check, a prepared added class should have a new version");
+    DSU_TRACE_MESG(("Eagerly initialize an added class %s.", dsu_class->name()->as_C_string()));
     new_version->initialize(CHECK);
   }
 }
