@@ -299,6 +299,10 @@ DSUError DSUClass::resolve_old_version(InstanceKlass* &old_version, TRAPS) {
     dsu_class_loader()->resolve(CHECK_(DSU_ERROR_RESOLVE_CLASS_LOADER_FAILED));
   }
 
+  if (!dsu_class_loader()->resolved()) {
+    return DSU_ERROR_RESOLVE_CLASS_LOADER_FAILED;
+  }
+
   assert(dsu_class_loader()->resolved(), "sanity check");
 
   Symbol* class_name = this->name();
@@ -318,7 +322,7 @@ DSUError DSUClass::resolve_old_version(InstanceKlass* &old_version, TRAPS) {
 
   if (klass == NULL) {
     ResourceMark rm(THREAD);
-    DSU_WARN(("Could not find loaded class [%s]. Abort parsing of the class. ", class_name->as_C_string()));
+    DSU_DEBUG(("Could not find loaded class [%s]. Abort parsing of the class. ", class_name->as_C_string()));
     return DSU_ERROR_OLD_CLASS_NOT_LOADED;
   }
 
@@ -467,22 +471,22 @@ void DSUClass::set_check_flags_for_methods(InstanceKlass* old_version,
 // The ycsc is just ycmc.
 void DSUClass::compute_youngest_common_super_class(InstanceKlass* old_version, InstanceKlass* new_version,
   InstanceKlass* &old_ycsc, InstanceKlass* &new_ycsc, TRAPS) {
-  old_ycsc = InstanceKlass::cast(old_version->super());
+  old_ycsc = old_version->superklass();
 
   while(old_ycsc != NULL) {
-    new_ycsc = InstanceKlass::cast(new_version->super());
+    new_ycsc = new_version->superklass();
     while(new_ycsc != NULL) {
       if (new_ycsc->name() == old_ycsc->name()) {
         break;
       }
-      new_ycsc = InstanceKlass::cast(new_ycsc->super());
+      new_ycsc = new_ycsc->superklass();
     }
 
     if (new_ycsc != NULL) {
       break;
     }
 
-    old_ycsc = InstanceKlass::cast(old_ycsc->super());
+    old_ycsc = old_ycsc->superklass();
   }
 
   // after calculate ycsc, we can use HandleMark now
@@ -497,8 +501,8 @@ void DSUClass::compute_youngest_common_super_class(InstanceKlass* old_version, I
     assert(old_ycsc != NULL && new_ycsc != NULL, "should not be null");
     assert(new_ycsc->name() == old_ycsc->name(), "invariant");
 
-    InstanceKlass* old_super = InstanceKlass::cast(old_version->super());
-    InstanceKlass* new_super = InstanceKlass::cast(new_version->super());
+    InstanceKlass* old_super = old_version->superklass();
+    InstanceKlass* new_super = new_version->superklass();
 
     if (old_super != old_ycsc) {
       // one super type has missed, the class must be type narrowed.
@@ -510,7 +514,7 @@ void DSUClass::compute_youngest_common_super_class(InstanceKlass* old_version, I
         old_super->set_is_super_type_of_stale_class();
         old_super->set_is_type_narrowing_relevant_type();
       }
-      old_super = InstanceKlass::cast(old_super->super());
+      old_super = old_super->superklass();
     }
 
     while(new_super != new_ycsc) {
@@ -518,7 +522,7 @@ void DSUClass::compute_youngest_common_super_class(InstanceKlass* old_version, I
       if (new_ycsc->is_type_narrowed_class()) {
         new_super->set_is_type_narrowed_class();
       }
-      new_super = InstanceKlass::cast(new_super->super());
+      new_super = new_super->superklass();
     }
   }
 
@@ -812,7 +816,7 @@ void DSUClass::compute_and_set_fields(InstanceKlass* old_version,
 
   // Start of setting matched instance fields
   // Direct super of new class
-  InstanceKlass* super_old = InstanceKlass::cast(old_version->super());
+  InstanceKlass* super_old = old_version->superklass();
   Array<u1>*     super_matched_fields = new_ycsc->matched_fields();
 
   int match_instance_length = 0; // total array length
@@ -882,7 +886,7 @@ void DSUClass::compute_and_set_fields(InstanceKlass* old_version,
 
   int instance_header_size_in_bytes = instanceOopDesc::header_size() << LogBytesPerWord;
 
-  InstanceKlass* super  = InstanceKlass::cast(new_version->super());
+  InstanceKlass* super  = new_version->superklass();
   // size in bytes
   const int new_super_object_size = super->size_helper() << LogBytesPerWord;
   int super_delta = new_super_object_size - instance_header_size_in_bytes;
@@ -1320,8 +1324,8 @@ DSUError DSUClass::compare_and_normalize_class(InstanceKlass* old_version,
   // first check whether super is the same
 
   {
-    InstanceKlass* old_super = InstanceKlass::cast(old_version->super());
-    InstanceKlass* new_super = InstanceKlass::cast(new_version->super());
+    InstanceKlass* old_super = old_version->superklass();
+    InstanceKlass* new_super = new_version->superklass();
     if (old_super != new_super) {
       // super class has changed
       if (old_super->name() != new_super->name()
@@ -1826,7 +1830,7 @@ void DSUClass::swap_class(TRAPS) {
 void DSUClass::update_subklass_vtable_and_itable(InstanceKlass* old_version, TRAPS) {
   HandleMark hm(THREAD);
   ResourceMark rm(THREAD);
-  InstanceKlass* subklass = (InstanceKlass*)(old_version->subklass_oop());
+  InstanceKlass* subklass = (InstanceKlass*)(old_version->subklass());
   while(subklass != NULL) {
     if (!(subklass->dsu_will_be_redefined() || subklass->dsu_will_be_swapped())) {
       {
@@ -1838,7 +1842,7 @@ void DSUClass::update_subklass_vtable_and_itable(InstanceKlass* old_version, TRA
       }
       update_subklass_vtable_and_itable(subklass,THREAD);
     }
-    subklass = InstanceKlass::cast(subklass->next_sibling_oop());
+    subklass = (InstanceKlass*)subklass->next_sibling();
   }
 }
 
@@ -3140,7 +3144,7 @@ void DSU::collect_all_super_classes(GrowableArray<InstanceKlass*>* results,
   while(queue_head < results->length()) {
     InstanceKlass* current_klass = results->at(queue_head);
     queue_head ++;
-    InstanceKlass* super_klass = InstanceKlass::cast(current_klass->super());
+    InstanceKlass* super_klass = current_klass->superklass();
     if (super_klass != NULL) {
       // versioned class hierarchy is a graph
       if (!results->contains(super_klass)) {
@@ -3149,7 +3153,7 @@ void DSU::collect_all_super_classes(GrowableArray<InstanceKlass*>* results,
     }
 
     if (include_alpha) {
-      super_klass = InstanceKlass::cast(current_klass->next_version());
+      super_klass = current_klass->next_version();
       if (super_klass != NULL) {
         if (!results->contains(super_klass)) {
           results->append(super_klass);
@@ -3157,7 +3161,7 @@ void DSU::collect_all_super_classes(GrowableArray<InstanceKlass*>* results,
       }
     }
     if (include_beta) {
-      super_klass = InstanceKlass::cast(current_klass->previous_version());
+      super_klass = current_klass->previous_version();
       if (super_klass != NULL) {
         if (!results->contains(super_klass)) {
           results->append(super_klass);
@@ -3340,7 +3344,7 @@ void DSUDynamicPatchBuilder::populate_sub_classes(DSUClass* dsu_class, InstanceK
     return;
   }
 
-  InstanceKlass* subklass = InstanceKlass::cast(ik->subklass());
+  InstanceKlass* subklass = (InstanceKlass*)ik->subklass();
   while(subklass != NULL) {
     Handle loader(THREAD, subklass->class_loader());
     Symbol* class_name = subklass->name();
@@ -3362,7 +3366,7 @@ void DSUDynamicPatchBuilder::populate_sub_classes(DSUClass* dsu_class, InstanceK
     if (subklass->next_sibling() == NULL) {
       break;
     }
-    subklass = InstanceKlass::cast(subklass->next_sibling());
+    subklass = (InstanceKlass*)subklass->next_sibling();
   }
 }
 
@@ -5771,13 +5775,12 @@ bool Javelus::transform_object_common_no_lock(Handle stale_object, TRAPS){
       assert(stale_klass->is_stale_class(), "invalid klass must not be invalid");
 
       if (stale_klass->is_stale_class()) {
-
         // This is a pattern of Temp Version
         // We will fix it later.
         if (stale_klass->next_version() == NULL) {
           // We enter here from an custom transformer method.
           // see post_fix_stale_new_class
-          assert(stale_klass->previous_version() != NULL, "This may be an temp version and must have previous version");
+          assert(stale_klass->previous_version() != NULL, "This may be an temp version and must have previous version or this is an object of a deleted class");
           assert(stale_klass->previous_version()->stale_new_class() == stale_klass, "invariant");
           return true;
         }
@@ -6788,7 +6791,7 @@ void Javelus::parse_old_field_annotation(InstanceKlass* the_class,
           if (found) {
             break;
           }
-          super = InstanceKlass::cast(super->super());
+          super = super->superklass();
         }
         if (found) {
           u1 type = fd.field_type();
