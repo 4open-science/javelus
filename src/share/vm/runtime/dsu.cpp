@@ -2320,6 +2320,9 @@ void DSUClass::define_class(TRAPS) {
   HandleMark hm(THREAD);
   InstanceKlass* old_version = NULL;
   InstanceKlass* new_version = new_version_class();
+  if (new_version == NULL) {
+    return;
+  }
   SystemDictionary::redefine_instance_class(old_version, new_version, CHECK);
 }
 
