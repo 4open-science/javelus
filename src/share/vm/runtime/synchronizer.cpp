@@ -617,6 +617,12 @@ static inline intptr_t get_next_hash(Thread * Self, oop obj) {
 }
 //
 intptr_t ObjectSynchronizer::FastHashCode (Thread * Self, oop obj) {
+  markOop mark = ReadStableMark (obj);
+  if (mark->is_mixed_object()) {
+    tty->print_cr("mixed object");
+    obj = (oop) mark->decode_phantom_object_pointer();
+    mark = ReadStableMark (obj);
+  }
   if (UseBiasedLocking) {
     // NOTE: many places throughout the JVM do not expect a safepoint
     // to be taken here, in particular most operations on perm gen
@@ -650,11 +656,7 @@ intptr_t ObjectSynchronizer::FastHashCode (Thread * Self, oop obj) {
   ObjectMonitor* monitor = NULL;
   markOop temp, test;
   intptr_t hash;
-  markOop mark = ReadStableMark (obj);
-  if (mark->is_mixed_object()) {
-    obj = (oop) mark->decode_phantom_object_pointer();
-    mark = ReadStableMark (obj);
-  }
+  mark = ReadStableMark (obj);
 
   // object should remain ineligible for biased locking
   assert (!mark->has_bias_pattern(), "invariant") ;

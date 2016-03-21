@@ -3966,7 +3966,7 @@ void DSUClassLoader::resolve(TRAPS) {
 }
 
 bool DSUClassLoader::resolve_transformer(Symbol* transformer_name, TRAPS) {
-  InstanceKlass* transformer;
+  InstanceKlass* transformer = NULL;
 
   DSU_DEBUG(("Resolve transformer [%s]", transformer_name->as_C_string()));
 
@@ -4032,11 +4032,11 @@ void DSUDirectStreamProvider::print() {
 DSUError  DSUClassLoader::load_new_version(Symbol* name, InstanceKlass* &new_class,
     DSUStreamProvider *stream_provider, TRAPS) {
   ResourceMark rm(THREAD);
+  new_class = NULL;
 
   if (!resolved()) {
     resolve(CHECK_(DSU_ERROR_RESOLVE_NEW_CLASS));
   }
-
 
   assert(resolved(), "sanity check");
 
@@ -4094,10 +4094,7 @@ DSUError  DSUClassLoader::load_new_version(Symbol* name, InstanceKlass* &new_cla
     }
   }
 
-
-  new_class = InstanceKlass::cast(k);
-
-  InstanceKlass* new_super = InstanceKlass::cast(new_class->super());
+  InstanceKlass* new_super = InstanceKlass::cast(k->super());
   ClassLoaderData* loader_data = new_super->class_loader_data();
   Symbol* new_super_name = new_super->name();
 
@@ -4124,6 +4121,8 @@ DSUError  DSUClassLoader::load_new_version(Symbol* name, InstanceKlass* &new_cla
       return DSU_ERROR_TO_BE_ADDED;
     }
   }
+
+  new_class = InstanceKlass::cast(k);
 
   // We just allocate constantPoolCache here and do not initialize vtable and itable.
   Rewriter::rewrite(new_class, THREAD);
@@ -4154,11 +4153,12 @@ DSUError  DSUClassLoader::load_new_version(Symbol* name, InstanceKlass* &new_cla
 #ifdef ASSERT
     new_class->vtable()->verify(tty);
 #endif
-
+    if (HAS_PENDING_EXCEPTION) {
+      assert(false, "should not have exception");
+    }
   }
 
   new_class->set_init_state(InstanceKlass::linked);
-
   return DSU_ERROR_NONE;
 }
 
@@ -5488,9 +5488,8 @@ InstanceKlass* Javelus::resolve_dsu_klass_or_null(Symbol* class_name, ClassLoade
     }
 
     // resolve new version
-    InstanceKlass* new_version;
+    InstanceKlass* new_version= NULL;
     dsu_class->resolve_new_version(new_version, CHECK_NULL);
-    assert(new_version != NULL, "sanity check");
     return new_version;
 }
 
