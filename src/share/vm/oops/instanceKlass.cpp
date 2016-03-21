@@ -3244,7 +3244,9 @@ void FieldPrinter::do_field(fieldDescriptor* fd) {
      _st->cr();
    } else if (_obj->mark()->is_mixed_object()) {
      if (fd->dsu_flags().needs_mixed_object_check()) {
-       fd->print_on_for(_st, oop(_obj->mark()->decode_phantom_object_pointer()));
+       oop phantom_object = oop(_obj->mark()->decode_phantom_object_pointer());
+       assert(phantom_object != NULL, "sanity check");
+       fd->print_on_for(_st, phantom_object);
      } else {
        fd->print_on_for(_st, _obj);
      }

@@ -4472,23 +4472,28 @@ JVM_ENTRY(jobject, ReplaceObject(JNIEnv *env, jclass clas, jobject old_o, jobjec
   oop old_obj = JNIHandles::resolve_non_null(old_o);
   oop new_obj = JNIHandles::resolve_non_null(new_o);
 
+  Handle o_h (THREAD, old_obj);
+  Handle n_h (THREAD, new_obj);
+  Javelus::transform_object_common(o_h, CHECK_NULL);
+  Javelus::transform_object_common(n_h, CHECK_NULL);
+
   if (new_obj->mark()->is_mixed_object()) {
     return NULL;
   }
 
-  Handle o (THREAD, old_obj);
-  Handle n (THREAD, new_obj);
-
-  InstanceKlass* ik = InstanceKlass::cast(n->klass());
+  InstanceKlass* ik = InstanceKlass::cast(n_h->klass());
 
   assert(!(ik->is_stale_class() || ik->is_inplace_new_class()),  "only mix new or new here");
 
-  Handle o_phantom (THREAD, o());
-  if (o->mark()->is_mixed_object()) {
-    o_phantom = Handle(THREAD, (oop) o->mark()->decode_phantom_object_pointer());
+  Handle o_phantom (THREAD, o_h());
+  if (o_h->mark()->is_mixed_object()) {
+    o_phantom = Handle(THREAD, (oop) o_h->mark()->decode_phantom_object_pointer());
   }
 
-  Javelus::copy_fields(n(), o(), o_phantom(), ik);
+  while (ik != NULL) {
+    Javelus::copy_fields(n_h(), o_h(), o_phantom(), ik);
+    ik = ik->superklass();
+  }
   return JNIHandles::make_local(env, old_obj);
 
 JVM_END
@@ -6045,8 +6050,8 @@ void run_default_transformer(Handle inplace_object, Handle old_phantom_object, H
   prototype_oop->set_mark(new_phantom_object->mark());
   assert(old_phantom_klass->stale_new_class() != NULL, "sanity check");
 
-  // this object is still stale but in the new type
-  prototype_oop->set_klass(old_phantom_klass->stale_new_class());
+  // prototype object is in the new type
+  prototype_oop->set_klass(old_phantom_klass->next_version());
 
   int length = matched_fields->length();
   //2.1). first pass copy match fields to prototype (include fields declared in super class)
@@ -6059,9 +6064,9 @@ void run_default_transformer(Handle inplace_object, Handle old_phantom_object, H
       // after all before fields are copied, we can clear memory (inplace_object_size - ycsc_object_size)
       memset(((char*)inplace_object()) + o_offset, 0, (int)n_offset);
     } else if ((flags & 0x01) != 0) {
-      Javelus::copy_field(inplace_object(), prototype_oop, o_offset, n_offset, type);
-    } else {
       Javelus::copy_field(old_phantom_object(), prototype_oop, o_offset, n_offset, type);
+    } else {
+      Javelus::copy_field(inplace_object(), prototype_oop, o_offset, n_offset, type);
     }
   }
 
@@ -6479,7 +6484,7 @@ void Javelus::copy_fields(oop src, oop dst, oop mix_dst, InstanceKlass* ik) {
   for (int i = 0; i < new_field_count; i++) {
     field_info = ik->field(i);
     int i_flags  = field_info->access_flags();
-    int i_dsu_flags  = 0;
+    int i_dsu_flags  = field_info->dsu_flags();
 
     if ((i_flags & JVM_ACC_STATIC) != 0) {
       // skip static field
@@ -6490,7 +6495,6 @@ void Javelus::copy_fields(oop src, oop dst, oop mix_dst, InstanceKlass* ik) {
     Symbol* s_sig = field_info->signature(ik->constants());
 
     BasicType type = FieldType::basic_type(s_sig);
-    assert((i_dsu_flags & DSU_FLAGS_MEMBER_NEEDS_MIXED_OBJECT_CHECK) == 0, "No field in the phantom object here.");
     if ((i_dsu_flags & DSU_FLAGS_MEMBER_NEEDS_MIXED_OBJECT_CHECK) == 0) {
       Javelus::copy_field(src, dst, offset, offset, type);
     } else {
