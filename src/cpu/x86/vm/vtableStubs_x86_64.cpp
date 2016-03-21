@@ -217,10 +217,12 @@ VtableStub* VtableStubs::create_itable_stub(int itable_index) {
 
 
   // call transformer routine
+  __ movq(r10, rsp);
+  __ andq(rsp, -16);     // align stack as required by push_CPU_state and call
   __ push_CPU_state();
   __ call_VM(noreg, CAST_FROM_FN_PTR(address, SharedRuntime::transform_object), rcx);
   __ pop_CPU_state();
-
+  __ movq(rsp, r10);
   __ bind(skip_check);
 
 

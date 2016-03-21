@@ -40,7 +40,7 @@
   static void check_and_update_stale_object(Register obj, Register temp);
   static void type_narrow_check(Register obj, Register temp);
   static void check_and_load_mixed_object(Register obj, Register temp);
-  static void explicit_stale_object_updating(Register obj);
+  static void explicit_stale_object_updating(Register obj, Register temp);
   static void index_check(Register array, Register index);
   static void index_check_without_pop(Register array, Register index);
 

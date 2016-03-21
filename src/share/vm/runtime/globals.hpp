@@ -3967,7 +3967,9 @@ class CommandLineFlags {
   product(bool, IgnoreUnloadedOldClass, true, "ignore classes that"         \
                                           "have not been loaded" )          \
   product(bool, IgnoreAddedClass, false, "not define added "                \
-           "class eagerly" )
+           "class eagerly" )                                                \
+  product(bool, IgnoreUnloadedAddedClass, true, "ignore new added class "   \
+           "when it cannot been defined eagerly" )
 
 /*
  *  Macros for factoring of globals

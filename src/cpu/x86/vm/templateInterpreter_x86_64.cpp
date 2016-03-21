@@ -759,9 +759,12 @@ address InterpreterGenerator::generate_accessor_entry(void) {
     __ andl(rdi, DSU_FLAGS_CLASS_IS_STALE_CLASS);
     __ jcc(Assembler::zero, notStale); // not a invalid class, skip update.
 
+    __ movq(rdi, rsp);
+    __ andq(rsp, -16);     // align stack as required by push_CPU_state and call
     __ push_CPU_state();
     __ call_VM(noreg, CAST_FROM_FN_PTR(address, InterpreterRuntime::update_stale_object), rax);
     __ pop_CPU_state();
+    __ movq(rsp, rdi);
 
     __ bind(notStale);
 

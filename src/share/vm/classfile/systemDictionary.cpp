@@ -323,6 +323,11 @@ Klass* SystemDictionary::resolve_super_or_fail(Symbol* child_name,
       DSU_TRACE_MESG(("Resolved super class %s for %s in DSU hierarchy.", class_name->as_C_string(), child_name->as_C_string()));
       return superk;
     }
+    DSUClass* super_dsu = Javelus::active_dsu()->find_class_by_name_and_loader(class_name, class_loader);
+
+    if (super_dsu != NULL && super_dsu->require_new_version()) {
+      THROW_MSG_NULL(vmSymbols::java_lang_NoClassDefFoundError(), class_name->as_C_string());
+    }
   }
 
   // Double-check, if child class is already loaded, just return super-class,interface

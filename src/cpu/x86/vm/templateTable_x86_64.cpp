@@ -3043,7 +3043,7 @@ void TemplateTable::check_and_update_stale_object(Register obj, Register temp) {
   __ movl(temp, Address(temp, Klass::dsu_flags_offset()));
   __ andl(temp, DSU_FLAGS_CLASS_IS_STALE_CLASS);
   __ jcc(Assembler::zero, skip_update);// not a stale class, skip update
-  explicit_stale_object_updating(obj);
+  explicit_stale_object_updating(obj, temp);
   __ bind(skip_update);
 }
 
@@ -3078,10 +3078,16 @@ void TemplateTable::check_and_load_mixed_object(Register obj, Register temp) {
 }
 
 
-void TemplateTable::explicit_stale_object_updating(Register obj) {
+void TemplateTable::explicit_stale_object_updating(Register obj, Register temp) {
+    assert_different_registers(obj, temp, rsp);
+
+  __ movptr(Address(rbp, frame::interpreter_frame_last_sp_offset * wordSize), NULL_WORD);
+  __ movq(temp, rsp);
+  __ andq(rsp, -16);     // align stack as required by push_CPU_state and call
   __ push_CPU_state();
   __ call_VM(noreg, CAST_FROM_FN_PTR(address, InterpreterRuntime::update_stale_object), obj);
   __ pop_CPU_state();
+  __ movq(rsp, temp);
 }
 
 
@@ -3230,6 +3236,7 @@ void TemplateTable::invokevirtual_helper(Register index,
 
 void TemplateTable::invokevirtual(int byte_no) {
   transition(vtos, vtos);
+
   assert(byte_no == f2_byte, "use this argument");
   prepare_invoke(byte_no,
                  rbx,    // method or vtable index
@@ -3239,7 +3246,6 @@ void TemplateTable::invokevirtual(int byte_no) {
   // rbx: index
   // rcx: receiver
   // rdx: flags
-
   invokevirtual_helper(rbx, rcx, rdx);
 }
 
@@ -3322,7 +3328,7 @@ void TemplateTable::invokeinterface(int byte_no) {
   __ restore_locals();   // make sure locals pointer is correct as well (was destroyed)
 
   // explicit update here
-  explicit_stale_object_updating(rcx);
+  explicit_stale_object_updating(rcx, rdx);
 
   prepare_invoke(byte_no, rax, rbx,  // get f1 Klass*, f2 itable index
                  rcx, rdx); // recv, flags

@@ -692,7 +692,7 @@ IRT_ENTRY(void, InterpreterRuntime::_breakpoint(JavaThread* thread, Method* meth
 IRT_END
 
 IRT_ENTRY(void, InterpreterRuntime::invoke_return_barrier(JavaThread* thread))
-  tty->print_cr("invoke return barrier");
+  Javelus::update_single_thread(thread);
 IRT_END
 
 // TODO we need implement continuous object update here.
@@ -834,7 +834,7 @@ IRT_ENTRY(void, InterpreterRuntime::resolve_invoke(JavaThread* thread, Bytecodes
   // resolve method
   CallInfo info;
   constantPoolHandle pool(thread, method(thread)->constants());
-
+  assert(!method(thread)->is_old(), "sanity check");
   {
     JvmtiHideSingleStepping jhss(thread);
     LinkResolver::resolve_invoke(info, receiver, pool,

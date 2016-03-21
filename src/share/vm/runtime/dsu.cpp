@@ -184,7 +184,7 @@ DSUError DSU::update(TRAPS) {
     // TODO class updating may swap contents of java.lang.Class
     // we have to perform the update ahead of that.
     //TraceTime t("Update changed reflection.");
-    update_changed_reflection(CHECK_(DSU_ERROR_TO_BE_ADDED));
+    //update_changed_reflection(CHECK_(DSU_ERROR_TO_BE_ADDED));
   }
   // 2.2). update each class contained in this DSU
   update_class_loaders(CHECK_(DSU_ERROR_UPDATE_DSUCLASSLOADER));
@@ -954,6 +954,11 @@ DSUError DSUClass::prepare(TRAPS) {
 
   InstanceKlass* new_version = NULL;
   ret = resolve_new_version(new_version, THREAD);
+
+  if (ret != DSU_ERROR_NONE && IgnoreUnloadedAddedClass) {
+    return DSU_ERROR_NONE;
+  }
+
   if (ret != DSU_ERROR_NONE) {
     //return ret;
     return ret;
@@ -1677,6 +1682,26 @@ void DSUClass::swap_class(TRAPS) {
   old_version->set_inner_classes(new_version->inner_classes());
   new_version->set_inner_classes(old_inner_classes);
 
+    // The class file bytes from before any retransformable agents mucked
+  // with them was cached on the scratch class, move to the_class.
+  // Note: we still want to do this if nothing needed caching since it
+  // should get cleared in the_class too.
+  if (old_version->get_cached_class_file_bytes() == 0) {
+    // the_class doesn't have a cache yet so copy it
+    old_version->set_cached_class_file(new_version->get_cached_class_file());
+  }
+  else if (new_version->get_cached_class_file_bytes() !=
+           old_version->get_cached_class_file_bytes()) {
+    // The same class can be present twice in the scratch classes list or there
+    // are multiple concurrent RetransformClasses calls on different threads.
+    // In such cases we have to deallocate scratch_class cached_class_file.
+    os::free(new_version->get_cached_class_file());
+  }
+
+  // NULL out in scratch class to not delete twice.  The class to be redefined
+  // always owns these bytes.
+  new_version->set_cached_class_file(NULL);
+
 
   {
     ResourceMark rm(THREAD);
@@ -1696,22 +1721,16 @@ void DSUClass::swap_class(TRAPS) {
 #endif
   }
 
-  //We will rename the old class;
-  //So link it here.
-  //{
-  //  ResourceMark rm(THREAD);
-  //  // no exception should happen here since we explicitly
-  //  // do not check loader constraints.
-  //  // compare_and_normalize_class_versions has already checked:
-  //  //  - classloaders unchanged, signatures unchanged
-  //  //  - all instanceKlasses for redefined classes reused & contents updated
-  //  new_version->vtable()->initialize_vtable(false, THREAD);
-  //  new_version->itable()->initialize_itable(false, THREAD);
-  //  assert(!HAS_PENDING_EXCEPTION || (THREAD->pending_exception()->is_a(SystemDictionary::ThreadDeath_klass())), "redefine exception");
-  //}
 
-  old_version->set_source_debug_extension(new_version->source_debug_extension(),
-    (int)strlen(old_version->source_debug_extension()));
+    // Copy the "source file name" attribute from new class version
+  old_version->set_source_file_name_index(
+    new_version->source_file_name_index());
+
+  // Copy the "source debug extension" attribute from new class version
+  old_version->set_source_debug_extension(
+    new_version->source_debug_extension(),
+    new_version->source_debug_extension() == NULL ? 0 :
+    (int)strlen(new_version->source_debug_extension()));
 
   if (new_version->access_flags().has_localvariable_table() !=
     old_version->access_flags().has_localvariable_table()) {
@@ -1798,7 +1817,7 @@ void DSUClass::swap_class(TRAPS) {
 void DSUClass::update_subklass_vtable_and_itable(InstanceKlass* old_version, TRAPS) {
   HandleMark hm(THREAD);
   ResourceMark rm(THREAD);
-  InstanceKlass* subklass = InstanceKlass::cast(old_version->subklass_oop());
+  InstanceKlass* subklass = (InstanceKlass*)(old_version->subklass_oop());
   while(subklass != NULL) {
     if (!(subklass->dsu_will_be_redefined() || subklass->dsu_will_be_swapped())) {
       {
@@ -2179,13 +2198,7 @@ void DSUClass::post_fix_new_version(InstanceKlass* old_version,
     new_version->initialize_supers(superik->next_version(), THREAD);
   }
 
-  // update mirror
-  oop java_mirror = old_version->java_mirror();
-  new_version->set_java_mirror(java_mirror);
-  java_lang_Class::set_klass(java_mirror, new_version);
-
-
-  //new_version->set_java_mirror(old_version->java_mirror());
+  assert(new_version->java_mirror() != NULL, "Now the java mirror contains static fields.");
 
   // we also set transfromer here
   {
@@ -4068,6 +4081,21 @@ DSUError  DSUClassLoader::load_new_version(Symbol* name, InstanceKlass* &new_cla
 
   new_class = InstanceKlass::cast(k);
 
+  InstanceKlass* new_super = InstanceKlass::cast(new_class->super());
+  ClassLoaderData* loader_data = new_super->class_loader_data();
+  Symbol* new_super_name = new_super->name();
+
+  // Check DSUClass again
+  DSUClassLoader* super_dsu_class_loader = dsu()->find_class_loader_by_loader(loader_data->class_loader());
+  if (super_dsu_class_loader != NULL) {
+    DSUClass* super_dsu_class = super_dsu_class_loader->find_class_by_name(new_super_name);
+    if (super_dsu_class == NULL) {
+      if (!new_super->is_initialized()) {
+        return DSU_ERROR_TO_BE_ADDED;
+      }
+    }
+  }
+
   // We just allocate constantPoolCache here and do not initialize vtable and itable.
   Rewriter::rewrite(new_class, THREAD);
   if (HAS_PENDING_EXCEPTION) {
@@ -4406,6 +4434,9 @@ JVM_END
 // return the MixNewObject if it exists
 JVM_ENTRY(jobject, GetMixThat(JNIEnv *env,jclass cls,jobject o))
   oop obj = JNIHandles::resolve_non_null(o);
+  Handle o_h(THREAD, obj);
+  Javelus::transform_object_common(o_h, CHECK_NULL);
+
   if (obj->mark()->is_mixed_object()) {
     return JNIHandles::make_local(env, (oop)obj->mark()->decode_phantom_object_pointer());
   }
@@ -4413,7 +4444,6 @@ JVM_ENTRY(jobject, GetMixThat(JNIEnv *env,jclass cls,jobject o))
 JVM_END
 
 JVM_ENTRY(jobject, ReplaceObject(JNIEnv *env, jclass clas, jobject old_o, jobject new_o))
-  //jobject ReplaceObject(JNIENv *env, jclass clas, jobject old_o, jobject new_o) {
   oop old_obj = JNIHandles::resolve_non_null(old_o);
   oop new_obj = JNIHandles::resolve_non_null(new_o);
 
@@ -4981,7 +5011,7 @@ void Javelus::create_DevelopInterface_klass(TRAPS) {
     CAST_FROM_FN_PTR(address, &GetMixThat),
     Method::native_bind_event_is_interesting);
 
-  m_getmixthat->set_native_function(
+  m_replaceObject->set_native_function(
     CAST_FROM_FN_PTR(address, &ReplaceObject),
     Method::native_bind_event_is_interesting);
 
@@ -5417,6 +5447,13 @@ InstanceKlass* Javelus::resolve_dsu_klass_or_null(Symbol* class_name, ClassLoade
     if (dsu_class == NULL) {
       return NULL;
     }
+
+    InstanceKlass* old_version = NULL;
+    int ret = dsu_class->resolve_old_version(old_version, THREAD);
+    if (ret != DSU_ERROR_NONE) {
+      return NULL;
+    }
+
     // resolve new version
     InstanceKlass* new_version;
     dsu_class->resolve_new_version(new_version, CHECK_NULL);
@@ -5676,12 +5713,6 @@ void Javelus::transform_object(Handle h, TRAPS) {
   Javelus::transform_object_common(h, CHECK);
 }
 
-// XXX Notice the thread is the first argument
-// XXX The method is in java calling convention
-// This method was called by
-//      * i2c_entry
-//      * c2i_entry
-//      * ...
 
 
 bool Javelus::transform_object_common_no_lock(Handle stale_object, TRAPS){
@@ -6482,7 +6513,11 @@ void Javelus::copy_field(oop src, oop dst, int src_offset, int dst_offset, Basic
     break;
   case T_OBJECT:
   case T_ARRAY:
-    dst->obj_field_put(dst_offset, src->obj_field(src_offset));
+    if (Universe::heap()->is_in(dst)) {
+      dst->obj_field_put(dst_offset, src->obj_field(src_offset));
+    } else {
+      dst->obj_field_put_raw(dst_offset, src->obj_field(src_offset));
+    }
     break;
   case T_INT:
     dst->int_field_put(dst_offset, src->int_field(src_offset));

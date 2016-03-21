@@ -44,13 +44,16 @@ PRAGMA_FORMAT_MUTE_WARNINGS_FOR_GCC
 // DSU support
 void ConstantPoolCacheEntry::reset_entry(){
   _indices = (_indices & 0x0000FFFF);
+  _f1 = NULL;
+  _f2 = 0;
+  _flags &= ~option_bits_mask;
 }
 
 bool ConstantPoolCacheEntry::adjust_entry_klass(Klass* old_holder, Klass* new_holder) {
   if (_f1 == old_holder) {
     initialize_entry(constant_pool_index());
     _f1 = NULL;
-    _f2 = 0;
+    _f1 = NULL;
     _flags = 0;
     return true;
   }

@@ -1252,6 +1252,50 @@ void InstanceKlass::call_class_initializer_impl(instanceKlassHandle this_oop, TR
     return;
   }
 
+  if (this_oop->is_new_redefined_class()) {
+    // A mixnew class can not be initialized by its class initializer method
+    ResourceMark rm(THREAD);
+
+    methodHandle class_transformer (THREAD, this_oop->class_transformer());
+    if (class_transformer.is_null()) {
+      return;
+    }
+    DSU_DEBUG(("Run class transformer for class [%s].", this_oop->name()->as_C_string()));
+    Array<u1>* transformer_args = this_oop->class_transformer_args();
+    int length = 0;
+    if (transformer_args != NULL) {
+      length = transformer_args->length();
+    }
+    int size = transformer_args == NULL ? 8 : transformer_args->length()/DSUClass::next_transformer_arg;
+    JavaCallArguments args(size);
+    Handle class_mirror (THREAD, this_oop->java_mirror());
+    args.push_oop(class_mirror);
+    if (transformer_args != NULL) {
+      instanceKlassHandle old_klass (THREAD,this_oop->previous_version());
+      for (int i = 0; i < length; i+=DSUClass::next_transformer_arg) {
+        u4 offset = build_u4_from(transformer_args->adr_at(i + DSUClass::transformer_field_offset));
+        BasicType type = (BasicType) transformer_args->at(i + DSUClass::transformer_field_type);
+        u1 flag = transformer_args->at(i + DSUClass::transformer_field_flag);
+        //Field may be in the phantom object, but this object is not a mixed object.
+        if ((flag & 0x01) != 0) {
+          Javelus::read_arg(old_klass->java_mirror(), offset, type, args, THREAD);
+        } else {
+          Javelus::read_arg(old_klass->java_mirror(), offset, type, args, THREAD);
+        }
+      }
+    }
+
+    JavaValue result(T_VOID);
+    JavaCalls::call(&result, class_transformer, &args, THREAD); // Static call (no args)
+    if (HAS_PENDING_EXCEPTION) {
+      Handle h_e(THREAD, PENDING_EXCEPTION);
+      java_lang_Throwable::print(h_e, tty);
+      java_lang_Throwable::print_stack_trace(h_e(), tty);
+      DSU_WARN(("Run class transformer for class [%s] fail.",this_oop->name()->as_C_string()));
+    }
+    return ;
+  }
+
   methodHandle h_method(THREAD, this_oop->class_initializer());
   assert(!this_oop->is_initialized(), "we cannot initialize twice");
   if (TraceClassInitialization) {
