@@ -98,10 +98,10 @@ oop fieldDescriptor::string_initial_value(TRAPS) const {
 }
 
 void fieldDescriptor::reinitialize(InstanceKlass* ik, int index) {
-  if (_cp.is_null() || (field_holder() != ik && !ik->is_inplace_new_class())) {
+  if (_cp.is_null() || (field_holder() != ik)) {
     _cp = constantPoolHandle(Thread::current(), ik->constants());
     // _cp should now reference ik's constant pool; i.e., ik is now field_holder.
-    assert(field_holder() == ik, "must be already initialized to this class");
+    assert(field_holder() == ik || ik->is_inplace_new_class(), "must be already initialized to this class");
   }
   FieldInfo* f = ik->field(index);
   assert(!f->is_internal(), "regular Java fields only");
@@ -146,7 +146,7 @@ void fieldDescriptor::print_on(outputStream* st) const {
 }
 
 void fieldDescriptor::print_on_for(outputStream* st, oop obj) {
-  assert(!obj->mark()->is_mixed_object(), "caller should do mixed object check");
+  assert(!(obj->mark()->is_mixed_object() && dsu_flags().needs_mixed_object_check()), "caller should do mixed object check");
   print_on(st);
   BasicType ft = field_type();
   jint as_int = 0;

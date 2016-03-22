@@ -189,8 +189,10 @@ void ObjectSynchronizer::fast_exit(oop object, BasicLock* lock, TRAPS) {
   markOop mark = object->mark();
   if (mark->is_mixed_object()) {
     object = (oop) mark->decode_phantom_object_pointer();
+    mark = object->mark();
     assert(!object->mark()->has_bias_pattern(), "should not see bias pattern here");
   }
+
   if (dhw == NULL) {
      // Recursive stack-lock.
      // Diagnostics -- Could be: stack-locked, inflating, inflated.

@@ -1468,7 +1468,7 @@ static int compare_fields_by_offset(int* a, int* b) {
 
 void InstanceKlass::do_nonstatic_fields(FieldClosure* cl) {
   InstanceKlass* super = superklass();
-  if (super != NULL) {
+  if (super != NULL && !is_inplace_new_class()) {
     super->do_nonstatic_fields(cl);
   }
   fieldDescriptor fd;

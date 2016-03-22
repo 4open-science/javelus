@@ -138,6 +138,7 @@ void ConstantPoolCacheEntry::set_field(Bytecodes::Code get_code,
   set_f2(field_offset);
   assert((field_index & field_index_mask) == field_index,
          "field index does not fit in low flag bits");
+
   set_field_flags(field_type,
                   ((mixed_object_check ? 1 : 0) << mixed_object_check_shift) |
                   ((type_narrow_check ? 1 : 0) << type_narrow_check_shift) |

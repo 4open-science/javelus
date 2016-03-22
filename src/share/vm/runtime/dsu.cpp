@@ -4501,7 +4501,6 @@ JVM_ENTRY(jobject, ReplaceObject(JNIEnv *env, jclass clas, jobject old_o, jobjec
   if (o_h->mark()->is_mixed_object()) {
     o_phantom = Handle(THREAD, (oop) o_h->mark()->decode_phantom_object_pointer());
   }
-
   while (ik != NULL) {
     Javelus::copy_fields(n_h(), o_h(), o_phantom(), ik);
     ik = ik->superklass();
@@ -5894,6 +5893,7 @@ bool Javelus::transform_object_common_no_lock(Handle stale_object, TRAPS){
               new_inplace_klass,
               new_phantom_klass,
               CHECK_false);
+            assert(stale_object->mark()->is_mixed_object(), "sanity check");
           } else { // simple to simple
             DSU_TRACE(0x00001000,("Transforming Object: [simple2simple] [%s]  [%d : %d]",stale_klass->name()->as_C_string(),c_dead_rn,t_crn));
             run_transformer(

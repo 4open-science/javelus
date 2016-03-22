@@ -3067,12 +3067,12 @@ void TemplateTable::check_and_load_mixed_object(Register obj, Register temp) {
   Label skip_load;
   // Check whether obj is a mixed object.
   __ movptr(temp, mark_word);
-  __ movptr(temp, markOopDesc::mixed_object_mask_in_place);
-  __ movptr(temp, markOopDesc::mixed_object_value);
+  __ andptr(temp, markOopDesc::mixed_object_mask_in_place);
+  __ cmpptr(temp, markOopDesc::mixed_object_value);
   __ jcc(Assembler::notEqual, skip_load);
 
   __ movptr(obj, mark_word);
-  __ movptr(obj, ~markOopDesc::mixed_object_mask_in_place); // Now, obj is pointed to the phantom object.
+  __ andptr(obj, ~markOopDesc::mixed_object_mask_in_place); // Now, obj is pointed to the phantom object.
 
   __ bind(skip_load);
 }
