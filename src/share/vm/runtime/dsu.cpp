@@ -783,10 +783,10 @@ void DSUClass::compute_and_set_fields(InstanceKlass* old_version,
         } else if (((n_flag & JVM_ACC_STATIC) != 0 ) && ((o_flag & JVM_ACC_STATIC) != 0)) {
           // a pair of match static fields
           match_static_index -= DSUClass::next_matched_field;
-          explode_int_to(o_offset, &match_fields[match_instance_index + DSUClass::matched_field_old_offset]);
-          explode_int_to(n_offset, &match_fields[match_instance_index + DSUClass::matched_field_new_offset]);
-          match_fields[match_instance_index + DSUClass::matched_field_flags] = m_flags;
-          match_fields[match_instance_index + DSUClass::matched_field_type] = n_field_type;
+          explode_int_to(o_offset, &match_fields[match_static_index + DSUClass::matched_field_old_offset]);
+          explode_int_to(n_offset, &match_fields[match_static_index + DSUClass::matched_field_new_offset]);
+          match_fields[match_static_index + DSUClass::matched_field_flags] = m_flags;
+          match_fields[match_static_index + DSUClass::matched_field_type] = n_field_type;
           break;
         } else {
           DSU_WARN(("Matched fields flags changed. [%s %s %s].", new_version->name()->as_C_string(),o_name->as_C_string(),o_sig->as_C_string()));
@@ -2064,14 +2064,22 @@ void DSUClass::install_new_version(InstanceKlass* old_version, InstanceKlass* ne
 
 void DSUClass::apply_default_class_transformer(InstanceKlass* old_version, InstanceKlass* new_version, TRAPS) {
   int count = this->match_static_count();
-  u1* match_fields = this->match_static_fields();
+  if (count == 0) {
+    return;
+  }
+  u1* matched_fields = this->match_static_fields();
 
+  oop old_mirror = old_version->java_mirror();
+  oop new_mirror = new_version->java_mirror();
+  assert(old_mirror != new_mirror, "sanity check");
   // copy unchanged static fields from old instanceKlass to new instanceKlass
   for (int i = 0; i < count; i += DSUClass::next_matched_field) {
-    int old_offset = build_u4_from(&match_fields[i + DSUClass::matched_field_old_offset]);
-    int new_offset = build_u4_from(&match_fields[i + DSUClass::matched_field_new_offset]);
-    BasicType type = (BasicType)match_fields[i + DSUClass::matched_field_type];
-    // TODO:
+    int old_offset = build_u4_from(&matched_fields[i + DSUClass::matched_field_old_offset]);
+    int new_offset = build_u4_from(&matched_fields[i + DSUClass::matched_field_new_offset]);
+    BasicType type = (BasicType) matched_fields[i + DSUClass::matched_field_type];
+    u1 flags = matched_fields[i + DSUClass::matched_field_flags];
+    assert(flags == 0, "static fields has 0 flag");
+    Javelus::copy_field(old_mirror, new_mirror, old_offset, new_offset, type);
   }
 }
 
