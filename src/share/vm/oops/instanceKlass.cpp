@@ -3260,9 +3260,6 @@ void FieldPrinter::do_field(fieldDescriptor* fd) {
 
 void InstanceKlass::oop_print_on(oop obj, outputStream* st) {
   if (obj->mark()->is_mixed_object()) {
-    st->print_cr(">>> begin phantom object <<<");
-    InstanceKlass::oop_print_on(oop(obj->mark()->decode_phantom_object_pointer()), st);
-    st->print_cr(">>> end phantom object <<<");
     Klass::oop_print_on(obj, st);
   } else {
     Klass::oop_print_on(obj, st);

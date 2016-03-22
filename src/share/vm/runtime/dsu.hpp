@@ -1069,8 +1069,8 @@ public:
   static void initialize(TRAPS);
   static void dsu_thread_init();
 
-  static oop merge_mixed_object(oop old_obj);
-  static oop merge_mixed_object(oop old_obj, oop new_obj);
+  static oopDesc* merge_mixed_object(oopDesc* old_obj);
+  static oopDesc* merge_mixed_object(oopDesc* old_obj, oopDesc* new_obj);
   static void dsu_thread_loop();
 
 

@@ -697,7 +697,7 @@ IRT_END
 
 // TODO we need implement continuous object update here.
 //
-IRT_ENTRY(void, InterpreterRuntime::update_stale_object(JavaThread* thread, oop recv))
+IRT_ENTRY(void, InterpreterRuntime::update_stale_object(JavaThread* thread, oopDesc* recv))
   //transform type before get code
   HandleMark hm(thread);
   Handle obj (thread,recv);

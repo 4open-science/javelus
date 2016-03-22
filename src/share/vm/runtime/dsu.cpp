@@ -213,7 +213,7 @@ DSUError DSU::update(TRAPS) {
 
     if (HAS_PENDING_EXCEPTION) {
       CLEAR_PENDING_EXCEPTION;
-      DSU_WARN(("Collect dead objects eagerly fails!", results->length()));
+      DSU_WARN(("Collect dead objects eagerly fails! Total %d", results->length()));
     } else {
 
       DSU_DEBUG(("Javelus::system_revision_number() is %d", Javelus::system_revision_number()));
@@ -1083,7 +1083,7 @@ DSUError DSUClass::resolve_transformer(TRAPS) {
             set_class_transformer_method(method);
             Array<u1>* annotations = method->parameter_annotations();
             Array<u1>* result = NULL;
-            Javelus::parse_old_field_annotation(old_version, transformer, 
+            Javelus::parse_old_field_annotation(old_version, transformer,
               annotations, result, CHECK_(DSU_ERROR_RESOLVE_OLD_FIELD_ANNOTATION));
             if (result != NULL) {
               set_class_transformer_args(result);
@@ -1097,7 +1097,7 @@ DSUError DSUClass::resolve_transformer(TRAPS) {
             set_object_transformer_method(method);
             Array<u1>* annotations = method->parameter_annotations();
             Array<u1>* result;
-            Javelus::parse_old_field_annotation(old_version, transformer, 
+            Javelus::parse_old_field_annotation(old_version, transformer,
               annotations, result, CHECK_(DSU_ERROR_RESOLVE_OLD_FIELD_ANNOTATION));
             if (result = NULL) {
               set_object_transformer_args(result);
@@ -1643,7 +1643,7 @@ void DSUClass::update(TRAPS) {
   if (HAS_PENDING_EXCEPTION) {
     Handle h_e (PENDING_EXCEPTION);
     ResourceMark rm(THREAD);
-    DSU_WARN(("Updating class %s results in an exception.", 
+    DSU_WARN(("Updating class %s results in an exception.",
           this->name()->as_C_string()
           ));
     java_lang_Throwable::print(h_e, tty);
@@ -1659,7 +1659,7 @@ void DSUClass::swap_class(TRAPS) {
   InstanceKlass* old_version = this->old_version_class();
 
   DSU_TRACE(0x000000400,
-    ("Swap single class %s, change type is %s",old_version->name()->as_C_string(), 
+    ("Swap single class %s, change type is %s",old_version->name()->as_C_string(),
      Javelus::class_updating_type_name(updating_type))
     );
 
@@ -1785,7 +1785,7 @@ void DSUClass::swap_class(TRAPS) {
   // as we have not put the new version into the class hierarchy,
   // so we cannot swap born directly.
   // In fact, the true born rn is system_revision_number + 1.
-  // this->from_rn == this->dsu()->from_rn() 
+  // this->from_rn == this->dsu()->from_rn()
   //               == system_revision_number (when activated) + 1
   old_version->set_born_rn(this->from_rn());
   new_version->set_born_rn(old_born_rn);
@@ -1858,7 +1858,7 @@ void DSUClass::undefine_class(TRAPS) {
     return;
   }
 
-  
+
   ik->set_dsu_state(DSUState::dsu_has_been_deleted);
 
   ik->set_is_stale_class();
@@ -2071,7 +2071,7 @@ void DSUClass::apply_default_class_transformer(InstanceKlass* old_version, Insta
     int old_offset = build_u4_from(&match_fields[i + DSUClass::matched_field_old_offset]);
     int new_offset = build_u4_from(&match_fields[i + DSUClass::matched_field_new_offset]);
     BasicType type = (BasicType)match_fields[i + DSUClass::matched_field_type];
-    // TODO: 
+    // TODO:
   }
 }
 
@@ -2095,10 +2095,10 @@ void DSUClass::mark_old_and_obsolete_methods(TRAPS) {
 }
 
 // TODO jmethodID is associated with idnum.
-// However, we cannot maintain idnum when we delete a method as the methods array may shrink. 
+// However, we cannot maintain idnum when we delete a method as the methods array may shrink.
 // (We can, but there is a lot of work to do.)
 // We should hack every use of jmethodID
-// Two cases: 
+// Two cases:
 // 1). In swap_class: new_version is in the old_version's space
 // 2). In redefine_class: new_version is just the new_version
 void DSUClass::update_jmethod_ids(InstanceKlass* new_version, TRAPS) {
@@ -2533,7 +2533,7 @@ public:
   virtual void do_oop(oop* unused) {
     DSU::check_and_append_changed_reflection(unused);
   }
-  virtual void do_oop(narrowOop* unused) { ShouldNotReachHere(); }  
+  virtual void do_oop(narrowOop* unused) { ShouldNotReachHere(); }
 };
 
 void DSU::collect_changed_reflections(TRAPS) {
@@ -2563,15 +2563,15 @@ void DSU::check_and_append_changed_reflect_field(oop* reflection) {
   if (!klass->oop_is_instance()) {
     return;
   }
-  
+
   //TODO
   InstanceKlass* ikh = InstanceKlass::cast(klass);
   if (ikh->dsu_will_be_redefined()) {
-  
+
   } else if (ikh->dsu_will_be_deleted()) {
     ShouldNotReachHere();
   } else if (ikh->dsu_will_be_swapped()) {
- 
+
   } else {
     return;
   }
@@ -2615,15 +2615,15 @@ void DSU::check_and_append_changed_reflect_method(oop* reflection) {
   if (!klass->oop_is_instance()) {
     return;
   }
-  
+
   //TODO
   InstanceKlass* ikh = InstanceKlass::cast(klass);
   if (ikh->dsu_will_be_redefined()) {
-  
+
   } else if (ikh->dsu_will_be_deleted()) {
     ShouldNotReachHere();
   } else if (ikh->dsu_will_be_swapped()) {
- 
+
   } else {
     return;
   }
@@ -2639,8 +2639,8 @@ void DSU::check_and_append_changed_reflect_method(oop* reflection) {
 
   InstanceKlass* new_ikh = dsu_class->new_version_class();
   assert(new_ikh != NULL, "sanity check");
-  
-  
+
+
   methodHandle new_method (thread, dsu_class->find_new_matched_method(method->name(), method->signature()));
   if (new_method.is_null()) {
     ResourceMark rm(thread);
@@ -2668,15 +2668,15 @@ void DSU::check_and_append_changed_reflect_constructor(oop* reflection) {
   if (!klass->oop_is_instance()) {
     return;
   }
-  
+
   //TODO
   InstanceKlass* ikh = InstanceKlass::cast(klass);
   if (ikh->dsu_will_be_redefined()) {
-  
+
   } else if (ikh->dsu_will_be_deleted()) {
     ShouldNotReachHere();
   } else if (ikh->dsu_will_be_swapped()) {
- 
+
   } else {
     return;
   }
@@ -2693,7 +2693,7 @@ void DSU::check_and_append_changed_reflect_constructor(oop* reflection) {
   InstanceKlass* new_ikh = dsu_class->new_version_class();
   assert(new_ikh != NULL, "sanity check");
 
-  methodHandle new_method (thread, 
+  methodHandle new_method (thread,
     //new_ikh->find_method(method->name(), method->signature())
     dsu_class->find_new_matched_method(method->name(), method->signature())
     );
@@ -2827,7 +2827,7 @@ void DSU::update_changed_reflect_constructor(oop old_reflection) {
   int slot = java_lang_reflect_Method::slot(old_reflection);
   Method* old_method = InstanceKlass::cast(klass)->method_with_idnum(slot);
   oop new_reflection = dsu_class->find_resolved_reflection(old_method->name(), old_method->signature());
-  
+
   if (old_reflection == new_reflection) {
     ShouldNotReachHere();
     return;
@@ -2905,7 +2905,7 @@ void DSU::update_changed_reflect_method(oop old_reflection, oop new_reflection) 
   }
 }
 
-void DSU::update_changed_reflect_constructor(oop old_reflection, oop new_reflection) { 
+void DSU::update_changed_reflect_constructor(oop old_reflection, oop new_reflection) {
   int slot = java_lang_reflect_Constructor::slot(new_reflection);
   java_lang_reflect_Constructor::set_slot(old_reflection, slot);
 
@@ -2949,7 +2949,7 @@ void DSU::update_changed_reflection(TRAPS) {
 
     // Iterate over objects in the heap
     UpdateReflectionClosure dic;
-  
+
     Universe::heap()->object_iterate(&dic);
   }
 }
@@ -3288,12 +3288,12 @@ DSUDynamicPatchBuilder::DSUDynamicPatchBuilder(const char * dynamic_patch):
 DSUDynamicPatchBuilder::~DSUDynamicPatchBuilder()
 {
   // to be added
-  
+
 }
 
 bool DSUDynamicPatchBuilder::build_all(TRAPS) {
   const char * path = _dynamic_patch;
-  
+
   _succ = true;
 
   if (path == NULL || path[0] == '\0') {
@@ -3542,7 +3542,7 @@ void DSUDynamicPatchBuilder::append_reflection(char* line, TRAPS) {
   char c_new_class_name[256];
 
   int result = sscanf(
-    line, 
+    line,
     "%255" DSU_BINARY_NAME " " "%1023" DSU_SIG " " "%255" DSU_BINARY_NAME " " "%1023" DSU_SIG " " "%255" DSU_BINARY_NAME ,
     c_old_name,
     c_old_sig,
@@ -3550,7 +3550,7 @@ void DSUDynamicPatchBuilder::append_reflection(char* line, TRAPS) {
     c_new_sig,
     c_new_class_name);
 
-  if (result != 4 
+  if (result != 4
     && result != 5) {
     _succ = false;
     DSU_WARN(("Command reflection format error, %s, result=%d", line, result));
@@ -3700,7 +3700,7 @@ bool DSUJvmtiBuilder::build_all(TRAPS) {
 }
 
 // in fact, jvmti has no need to implement add new classes.
-// as during debugging, any new class will be compiled into the 
+// as during debugging, any new class will be compiled into the
 // original directory.a
 void DSUJvmtiBuilder::build_added_class(DSUClassUpdatingType type,
     const jvmtiClassDefinition * def, TRAPS) {
@@ -4326,7 +4326,7 @@ Method* DSUClass::find_new_matched_method(Symbol* name, Symbol* signature) {
   }
 
   // not in match information
-  // return 
+  // return
   return new_version_class()->find_method(name, signature);
 }
 
@@ -4525,7 +4525,7 @@ void invoke_dsu_common(const char *dynamic_patch, jboolean sync, TRAPS) {
   }
 
   DSU* dsu = patch_builder.dsu();
-  
+
   dsu->validate(CHECK);
 
   VM_DSUOperation * op = new VM_DSUOperation(dsu);
@@ -4681,7 +4681,7 @@ InstanceKlass* Javelus::developer_interface_klass() {
 }
 
 // TODO this should be synchronized
-// But as there is only one DSUThread and only DSUThread 
+// But as there is only one DSUThread and only DSUThread
 // can set active dsu, so we have no need to synchronized in fact.
 void Javelus::set_active_dsu(DSU* dsu) {
   assert(Thread::current()->is_DSU_thread(), "sanity");
@@ -5173,7 +5173,7 @@ void Javelus::repair_single_thread(JavaThread * thread) {
         assert(new_method != NULL, "loosely restricted method must have a new version");
         int bci = current->interpreter_frame_bci();
 
-        // TODO 
+        // TODO
         // I have no idea why we cannot build interpreter method as profile_method here.
         // Obviously, we are not in thread_vm.
         // But how can profile_method do...
@@ -5832,7 +5832,7 @@ bool Javelus::transform_object_common_no_lock(Handle stale_object, TRAPS){
               oop new_object = new_phantom_klass->allocate_instance(CHECK_false);
               Handle new_phantom_object (THREAD, new_object);
 
-              assert(((intptr_t)new_phantom_object() & 0x07) == 0, "must be 8 byte alignment");
+              assert(((intptr_t)((address)new_phantom_object()) & 0x07) == 0, "must be 8 byte alignment");
               run_transformer(
                 stale_object,
                 old_phantom_object,
@@ -5875,7 +5875,7 @@ bool Javelus::transform_object_common_no_lock(Handle stale_object, TRAPS){
 
             // We need create a phantom object here.
             oop new_object = new_phantom_klass->allocate_instance(CHECK_false);
-            assert( ((intptr_t)new_object & 0x07) == 0, "must be 8 byte alignment");
+            assert(((intptr_t)((address)new_object) & 0x07) == 0, "must be 8 byte alignment");
             Handle new_phantom_object(THREAD, new_object);
 
             run_transformer(
@@ -6064,7 +6064,7 @@ void run_default_transformer(Handle inplace_object, Handle old_phantom_object, H
     u1 flags = matched_fields->at(i + DSUClass::matched_field_flags);
     if ((flags & 0x04) != 0) {
       // after all before fields are copied, we can clear memory (inplace_object_size - ycsc_object_size)
-      memset(((char*)inplace_object()) + o_offset, 0, (int)n_offset);
+      memset(((char*)((address)inplace_object())) + o_offset, 0, (int)n_offset);
     } else if ((flags & 0x01) != 0) {
       Javelus::copy_field(old_phantom_object(), prototype_oop, o_offset, n_offset, type);
     } else {
@@ -6709,7 +6709,7 @@ void Javelus::parse_old_field_annotation(InstanceKlass* the_class,
       tty->print("%0x ", annotations->at(i));
     }
     tty->cr();
-    
+
     tty->print_cr("[DSU] Parse annotations, number of parameters %d, attribute length is %d", num_parameters, attribute_length);
     if (num_parameters > 1) {
       // set up annotation
@@ -6752,7 +6752,7 @@ void Javelus::parse_old_field_annotation(InstanceKlass* the_class,
           element_name_index_length = 2,  // 0
           // element value
           tag_length = 1, // 2
-          string_const_value_index_length = 2, // 2          
+          string_const_value_index_length = 2, // 2
         };
 
         Symbol* holder = NULL;
