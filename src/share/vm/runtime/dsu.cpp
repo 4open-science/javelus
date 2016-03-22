@@ -1288,12 +1288,6 @@ DSUClassUpdatingType Javelus::join(DSUClassUpdatingType this_type, DSUClassUpdat
     return this_type>that_type ? this_type:that_type;
   case DSU_CLASS_ADD:
   case DSU_CLASS_DEL:
-#ifdef ASSERT
-    if (this_type != that_type) {
-      tty->print_cr(Javelus::class_updating_type_name(this_type));
-      tty->print_cr(Javelus::class_updating_type_name(that_type));
-    }
-#endif
     // no upgrade
     assert(this_type == that_type, "sanity");
     return this_type;
@@ -3005,7 +2999,7 @@ DSUClassLoader *DSU::find_or_create_class_loader_by_loader(Handle loader, TRAPS)
     } else {
       // Should we have to create a DSUClassLoader first?
       stringStream st;
-      st.print("%d", os::random());
+      st.print("%d", (int)os::random());
       char* cstr = st.as_string();
       id = SymbolTable::lookup(cstr, (int)strlen(cstr), CHECK_NULL);
       // TODO
@@ -3958,7 +3952,7 @@ void DSUClassLoader::resolve(TRAPS) {
         DSU_DEBUG(("Resolve class loader by class [%s]", class_name->as_C_string()));
         Javelus::pick_loader_by_class_name(class_name, result, CHECK);
         if (result != NULL) {
-          DSU_DEBUG(("Success to resolve class loader by class ", class_name->as_C_string()));
+          DSU_DEBUG(("Success to resolve class loader by class %s", class_name->as_C_string()));
           break;
         }
       }
@@ -5237,7 +5231,7 @@ void Javelus::update_single_thread (JavaThread* thread) {
   //assert(!(return_barrier_id&&NULL||thread->return_barrier_type()),
   //  "return barrier id should not be null at the same time.");
 
-  DSU_TRACE(0x00000100,("Thread %s enters a return barrier. [0x%08x,%d].",
+  DSU_TRACE(0x00000100,("Thread %s enters a return barrier. [" PTR_FORMAT ",%d].",
               thread->get_thread_name(),
               return_barrier_id,
               thread->return_barrier_type()
@@ -5572,11 +5566,11 @@ void PickClassLoaderCLDClosure::do_cld(ClassLoaderData* cld) {
         _loader_data = cld;
       } else {
         ResourceMark rm;
-        DSU_WARN(("Ignore a non-defined class loader data for class ", _class_name->as_C_string()));
+        DSU_WARN(("Ignore a non-defined class loader data for class %s", _class_name->as_C_string()));
       }
     } else {
       ResourceMark rm;
-      DSU_WARN(("Find a duplicated class loader data for class ", _class_name->as_C_string()));
+      DSU_WARN(("Find a duplicated class loader data for class %s", _class_name->as_C_string()));
     }
   }
 }
@@ -7100,8 +7094,8 @@ void DSUEagerUpdate::start_eager_update(JavaThread *thread) {
     DSU_INFO(("DSU eager updating total pause time: %3.7f (s).",dsu_timer.seconds()));
     if (DSU_TRACE_ENABLED(0x00000001)) {
       time_t tloc;
-      (void*)time(&tloc);
-      tty->print("[DSU]-[Info]: DSU Eager Object Updating finished at %s",ctime(&tloc));
+      time(&tloc);
+      tty->print("[DSU]-[Info]: DSU Eager Object Updating finished at %s", ctime(&tloc));
     }
     _be_updating = false;
     _has_been_updated = true;
@@ -7213,13 +7207,6 @@ void DSUEagerUpdate::install_eager_update_return_barrier(TRAPS) {
                   barrier_addr = Interpreter::return_with_barrier_entry(tos, 3, code);
                 }
 
-                //callee->interpreter_frame_method()->print();
-
-                if (!(normal_addr == current->pc())) {
-                  tty->print_cr("normal_addr %d 0x%08x 0x%08x pc 0x%08x",tos, Interpreter::return_entry(tos,5, code), Interpreter::return_entry(tos,3, code), current->pc());
-                  method->print_codes();
-                }
-
                 assert(normal_addr == current->pc(), "sanity check");
 
                 // TODO
@@ -7280,7 +7267,7 @@ void DSUEagerUpdate::install_eager_update_return_barrier(TRAPS) {
       assert(thr->return_barrier_id() != NULL, "return barrier id must  not be null!!");
       {
         ResourceMark rm;
-        DSU_TRACE(0x00000100, ("install eager update [%d] return barrier at 0x%08x for thread %s.",
+        DSU_TRACE(0x00000100, ("install eager update [%d] return barrier at "PTR_FORMAT" for thread %s.",
           thr->return_barrier_type(),
           thr->return_barrier_id(),
           thr->get_thread_name()));
