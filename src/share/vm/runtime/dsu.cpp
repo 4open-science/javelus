@@ -4534,8 +4534,7 @@ void invoke_dsu_common(const char *dynamic_patch, jboolean sync, TRAPS) {
 
   Javelus::get_dsu_thread()->add_task(task);
 
-  if (sync)
-  {
+  if (sync) {
     MutexLocker locker(DSURequest_lock);
     //tty->print_cr("wait until DSU finish try");
     DSURequest_lock->wait();
@@ -6029,9 +6028,6 @@ void collect_transformer_arguments(JavaCallArguments &args, Handle inplace_objec
 void run_default_transformer(Handle inplace_object, Handle old_phantom_object, Handle new_phantom_object,
      InstanceKlass* old_phantom_klass, InstanceKlass* new_phantom_klass, TRAPS) {
   Array<u1>* matched_fields = new_phantom_klass->matched_fields();
-  if (matched_fields == NULL) {
-    return;
-  }
 
   const int old_inplace_size_in_bytes = InstanceKlass::cast(inplace_object->klass())->size_helper() << LogBytesPerWord;
   const int old_phantom_size_in_bytes = old_phantom_klass->size_helper() << LogBytesPerWord;
@@ -6044,6 +6040,25 @@ void run_default_transformer(Handle inplace_object, Handle old_phantom_object, H
   bool relink       = !from_simple && !to_simple && old_phantom_object() != new_phantom_object();
   bool reallocate_inplace = to_simple && new_phantom_size_in_bytes < old_inplace_size_in_bytes;
   bool reallocate_phantom = !from_simple && !to_simple && old_phantom_object == new_phantom_object && new_phantom_size_in_bytes < old_phantom_size_in_bytes;
+
+  if (matched_fields == NULL) {
+    {
+      // This should be done atomic if we have a concurrent gc.
+      // The thread should be in VM or at safe point.
+      assert(old_phantom_klass->stale_new_class() != NULL, "sanity check");
+      inplace_object->set_klass(old_phantom_klass->stale_new_class());
+      if (link) {
+        Javelus::link_mixed_object(inplace_object, new_phantom_object, CHECK);
+        assert(inplace_object->mark()->is_mixed_object(), "sanity check");
+      } else if (relink) {
+        Javelus::relink_mixed_object(inplace_object, old_phantom_object, new_phantom_object, CHECK);
+      } else if (unlink_mixed) {
+        Javelus::unlink_mixed_object(inplace_object, old_phantom_object, CHECK);
+      }
+      // now the object may is a simple object or a mixed object with empty fields.
+    }
+    return;
+  }
 
   ResourceMark rm(THREAD);
   char *prototype_c = NEW_RESOURCE_ARRAY(char, new_phantom_size_in_bytes);
@@ -6083,6 +6098,7 @@ void run_default_transformer(Handle inplace_object, Handle old_phantom_object, H
     inplace_object->set_klass(old_phantom_klass->stale_new_class());
     if (link) {
       Javelus::link_mixed_object(inplace_object, new_phantom_object, CHECK);
+      assert(inplace_object->mark()->is_mixed_object(), "sanity check");
     } else if (relink) {
       Javelus::relink_mixed_object(inplace_object, old_phantom_object, new_phantom_object, CHECK);
     } else if (unlink_mixed) {
