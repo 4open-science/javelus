@@ -3988,7 +3988,8 @@ bool DSUClassLoader::resolve_transformer(Symbol* transformer_name, TRAPS) {
 
   // we should initialize transformer classes before invoke method of it.
   transformer->initialize(CHECK_false);
-  transformer->dsu_flags().set_is_transformer_class();
+  transformer->set_is_transformer_class();
+  assert(transformer->is_transformer_class(), "sanity check!")
   set_transformer_class(transformer);
 
   return DSU_ERROR_NONE;
