@@ -1257,7 +1257,7 @@ void InstanceKlass::call_class_initializer_impl(instanceKlassHandle this_oop, TR
     ResourceMark rm(THREAD);
 
     methodHandle class_transformer (THREAD, this_oop->class_transformer());
-    if (class_transformer.is_null()) {
+    if (class_transformer() != NULL) {
       return;
     }
     DSU_DEBUG(("Run class transformer for class [%s].", this_oop->name()->as_C_string()));

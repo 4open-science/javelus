@@ -3989,7 +3989,7 @@ bool DSUClassLoader::resolve_transformer(Symbol* transformer_name, TRAPS) {
   // we should initialize transformer classes before invoke method of it.
   transformer->initialize(CHECK_false);
   transformer->set_is_transformer_class();
-  assert(transformer->is_transformer_class(), "sanity check!")
+  assert(transformer->is_transformer_class(), "sanity check!");
   set_transformer_class(transformer);
 
   return DSU_ERROR_NONE;
@@ -5022,7 +5022,9 @@ void Javelus::create_DevelopInterface_klass(TRAPS) {
 
   // link
   ikh->link_class(THREAD);
-  ikh->initialize(THREAD);
+
+  // initialize
+  // ikh->initialize(THREAD);
 
 
   //register native method

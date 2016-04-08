@@ -205,7 +205,6 @@ VtableStub* VtableStubs::create_itable_stub(int itable_index) {
 
   __ bind(check_stale_object);
 
-
   const Address mark_word = Address(rcx, 0);
 
   Label skip_check;
@@ -234,7 +233,6 @@ VtableStub* VtableStubs::create_itable_stub(int itable_index) {
                              // outputs: method, scan temp. reg
                              method, r11,
                              throw_icce);
-
 
   __ jmp(hit);
 
@@ -265,7 +263,8 @@ int VtableStub::pd_code_size_limit(bool is_vtable_stub) {
            (UseCompressedClassPointers ?  MacroAssembler::instr_size_for_decode_klass_not_null() : 0);
   } else {
     // Itable stub size
-    return (DebugVtables ? 512 : 74) + (CountCompiledCalls ? 13 : 0) +
+    // Original: 512 : 74
+    return (DebugVtables ? 1212 : 774) + (CountCompiledCalls ? 13 : 0) +
            (UseCompressedClassPointers ?  MacroAssembler::instr_size_for_decode_klass_not_null() : 0);
   }
   // In order to tune these parameters, run the JVM with VM options
