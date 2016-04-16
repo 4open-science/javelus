@@ -244,8 +244,8 @@ DSUError DSU::update(TRAPS) {
   DSU_INFO(("DSU request pause time: %3.7f (s).",dsu_timer.seconds()));
   if (DSU_TRACE_ENABLED(0x00000001)) {
       time_t tloc;
-      (void*)time(&tloc);
-      tty->print("[DSU]-[Info]: DSU request finished at %s",ctime(&tloc));
+      time(&tloc);
+      tty->print("[DSU]-[Info]: DSU request finished at %s", ctime(&tloc));
   }
 
   return DSU_ERROR_NONE;
@@ -5235,7 +5235,7 @@ void Javelus::update_single_thread (JavaThread* thread) {
 
   DSU_TRACE(0x00000100,("Thread %s enters a return barrier. [" PTR_FORMAT ",%d].",
               thread->get_thread_name(),
-              return_barrier_id,
+              p2i(return_barrier_id),
               thread->return_barrier_type()
               ));
 
@@ -7286,9 +7286,9 @@ void DSUEagerUpdate::install_eager_update_return_barrier(TRAPS) {
       assert(thr->return_barrier_id() != NULL, "return barrier id must  not be null!!");
       {
         ResourceMark rm;
-        DSU_TRACE(0x00000100, ("install eager update [%d] return barrier at "PTR_FORMAT" for thread %s.",
+        DSU_TRACE(0x00000100, ("install eager update [%d] return barrier at " PTR_FORMAT " for thread %s.",
           thr->return_barrier_type(),
-          thr->return_barrier_id(),
+          p2i(thr->return_barrier_id()),
           thr->get_thread_name()));
       }
     }
