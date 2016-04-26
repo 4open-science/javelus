@@ -136,8 +136,9 @@ typedef enum {
   DSU_ERROR_UPDATE_DSUCLASSLOADER = 145,
   DSU_ERROR_UPDATE_DSUCLASS = 146,
   DSU_ERROR_RESOLVE_OLD_FIELD_ANNOTATION = 147,
-  DSU_ERROR_TO_BE_ADDED = 148,
-  DSU_ERROR_MAX = 149
+  DSU_ERROR_NO_UPDATED_CLASS = 148,
+  DSU_ERROR_TO_BE_ADDED = 149,
+  DSU_ERROR_MAX = 150
 } DSUError;
 
 // TODO: not used
@@ -154,8 +155,9 @@ typedef enum {
   DSU_REQUEST_INIT = 0,
   DSU_REQUEST_DISCARDED = 1,
   DSU_REQUEST_INTERRUPTED = 2,
-  DSU_REQUEST_FINISHED = 3,
-  DSU_REQUEST_FAILED = 4,
+  DSU_REQUEST_EMPTY = 3,
+  DSU_REQUEST_FINISHED = 4,
+  DSU_REQUEST_FAILED = 5,
 } DSURequestState;
 
 typedef enum {
@@ -771,6 +773,7 @@ public:
   }
 
   bool is_finished()    const { return _request_state == DSU_REQUEST_FINISHED; }
+  bool is_empty()       const { return _request_state == DSU_REQUEST_EMPTY; }
   bool is_discarded()   const { return _request_state == DSU_REQUEST_DISCARDED; }
   bool is_interrupted() const { return _request_state == DSU_REQUEST_INTERRUPTED; }
   bool is_init()        const { return _request_state == DSU_REQUEST_INIT; }

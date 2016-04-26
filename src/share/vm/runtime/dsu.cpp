@@ -111,6 +111,20 @@ DSUError DSU::prepare(TRAPS) {
   }
 
   this->collect_changed_reflections(CHECK_(DSU_ERROR_TO_BE_ADDED));
+
+  int num_of_prepared_class = 0;
+  for (DSUClassLoader* dsu_loader = first_class_loader(); dsu_loader!=NULL; dsu_loader=dsu_loader->next()) {
+    for(DSUClass *dsu_class = dsu_loader->first_class();dsu_class!=NULL;dsu_class=dsu_class->next()) {
+      if (dsu_class->prepared()) {
+        num_of_prepared_class++;
+      }
+    }
+  }
+
+  if (num_of_prepared_class == 0) {
+    return DSU_ERROR_NO_UPDATED_CLASS;
+  }
+
   return DSU_ERROR_NONE;
 }
 
@@ -4681,9 +4695,6 @@ InstanceKlass* Javelus::developer_interface_klass() {
   return _developer_interface_klass;
 }
 
-// TODO this should be synchronized
-// But as there is only one DSUThread and only DSUThread
-// can set active dsu, so we have no need to synchronized in fact.
 void Javelus::set_active_dsu(DSU* dsu) {
   assert(Thread::current()->is_DSU_thread(), "sanity");
   assert(_active_dsu == NULL, "sanity");
@@ -4708,11 +4719,10 @@ void Javelus::finish_active_dsu() {
 }
 
 void Javelus::discard_active_dsu() {
-  //assert(SafepointSynchronize::is_at_safepoint(), "sanity" );
-  assert(_active_dsu != NULL, "sanity");
-
-  delete _active_dsu;
-  _active_dsu = NULL;
+  if (_active_dsu != NULL) {
+    delete _active_dsu;
+    _active_dsu = NULL;
+  }
 }
 
 DSU* Javelus::get_DSU(int from_rn) {
@@ -6294,9 +6304,8 @@ void Javelus::repatch_method(Method* method,bool print_replace, TRAPS) {
 void Javelus::dsu_thread_loop() {
   DSUThread * thread = DSUThread::current();
 
-  ResourceMark rm;
-
   while(true) {
+    ResourceMark rm;
     DSUTask * task = thread->next_task();
 
     if (task == NULL) {
@@ -6318,7 +6327,10 @@ void Javelus::dsu_thread_loop() {
         // Request is finished..
         DSU_INFO(("DSU Request is finished"));
         break;
-      } else if (op->is_discarded()) {
+      } else if (op->is_empty()) {
+        DSU_WARN(("DSU Request has no updated class"));
+        break;
+       } else if (op->is_discarded()) {
         // Request is discarded..
         DSU_WARN(("DSU Request is discarded"));
         Javelus::discard_active_dsu();

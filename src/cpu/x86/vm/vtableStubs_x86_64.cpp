@@ -264,7 +264,7 @@ int VtableStub::pd_code_size_limit(bool is_vtable_stub) {
   } else {
     // Itable stub size
     // Original: 512 : 74
-    return (DebugVtables ? 1212 : 774) + (CountCompiledCalls ? 13 : 0) +
+    return (DebugVtables ? 1312 : 874) + (CountCompiledCalls ? 13 : 0) +
            (UseCompressedClassPointers ?  MacroAssembler::instr_size_for_decode_klass_not_null() : 0);
   }
   // In order to tune these parameters, run the JVM with VM options

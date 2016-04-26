@@ -58,7 +58,7 @@ DSUError VM_DSUOperation::prepare_dsu(TRAPS) {
   }
 
   if (HAS_PENDING_EXCEPTION) {
-    tty->print_cr("WARNNING: Prepare DSU Error!!");
+    tty->print_cr("WARNNING: Preparing DSU results in an exception!!");
     return DSU_ERROR_TO_BE_ADDED;
   }
 
@@ -73,6 +73,7 @@ bool VM_DSUOperation::verify_dsu(TRAPS) {
 
   if (_dsu->first_class_loader() == NULL) {
     DSU_TRACE_MESG(("No class loader, empty DSU, no class to be updated!"));
+    set_request_state(DSU_REQUEST_EMPTY);
     return false;
   }
 
@@ -91,6 +92,7 @@ bool VM_DSUOperation::verify_dsu(TRAPS) {
 
   if (to_be_updated == 0) {
     DSU_TRACE_MESG(("Empty DSU, no class to be updated!"));
+    set_request_state(DSU_REQUEST_EMPTY);
     return false;
   }
   return true;
@@ -124,9 +126,15 @@ bool VM_DSUOperation::doit_prologue() {
         MutexLocker locker(DSURequest_lock);
         DSURequest_lock->notify_all();
       }
-      DSU_TRACE_MESG(("Discard DSU request, Error Code %d",_res));
-      set_request_state(DSU_REQUEST_DISCARDED);
-      return false;
+
+      if (_res == DSU_ERROR_NO_UPDATED_CLASS) {
+        DSU_TRACE_MESG(("Discard DSU request, no updated class"));
+        set_request_state(DSU_REQUEST_EMPTY);
+      } else {
+        DSU_TRACE_MESG(("Discard DSU request, Error Code %d",_res));
+        set_request_state(DSU_REQUEST_DISCARDED);
+      }
+     return false;
     }
 
     return true;

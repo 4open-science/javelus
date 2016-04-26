@@ -64,6 +64,7 @@ public:
   //void free_memory();
 
   bool is_finished()    const { return _dsu->is_finished(); }
+  bool is_empty()       const { return _dsu->is_empty(); }
   bool is_discarded()   const { return _dsu->is_discarded(); }
   bool is_interrupted() const { return _dsu->is_interrupted(); }
   bool is_init()        const { return _dsu->is_init(); }
