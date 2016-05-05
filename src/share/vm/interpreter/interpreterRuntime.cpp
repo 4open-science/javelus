@@ -695,6 +695,13 @@ IRT_ENTRY(void, InterpreterRuntime::invoke_return_barrier(JavaThread* thread))
   Javelus::update_single_thread(thread);
 IRT_END
 
+IRT_ENTRY(void, InterpreterRuntime::invoke_return_barrier_with_oop(JavaThread* thread, oopDesc* return_value))
+  HandleMark hm(thread);
+  Handle ret(thread, return_value);
+  Javelus::update_single_thread(thread);
+  thread->set_vm_result(ret());
+IRT_END
+
 // TODO we need implement continuous object update here.
 //
 IRT_ENTRY(void, InterpreterRuntime::update_stale_object(JavaThread* thread, oopDesc* recv))

@@ -128,8 +128,13 @@ public:
   jshort as_short()                    { return (jshort)_flags; }
   jint   as_int()                      { return _flags; }
 
-  // Printing/debugging
+ // Printing/debugging
+#if INCLUDE_JVMTI
+  void print_on(outputStream* st) const;
+#else
   void print_on(outputStream* st) const PRODUCT_RETURN;
+#endif
+
   inline friend  DSUFlags dsuFlags_from(jint flags);
 };
 

@@ -38,6 +38,7 @@
 #include "interpreter/rewriter.hpp"
 #include "classfile/javaClasses.hpp"
 #include "classfile/dictionary.hpp"
+#include "classfile/classLoaderData.inline.hpp"
 #include "runtime/handles.hpp"
 #include "runtime/jniHandles.hpp"
 #include "runtime/frame.hpp"
@@ -3939,8 +3940,8 @@ void DSUClassLoader::resolve(TRAPS) {
   assert(id() != NULL, "sanity check");
   if (id()->utf8_length() == 0) {
     // bind to the system class loader;
-    HandleMark hm(THREAD);
-    set_class_loader_data(ClassLoaderData::class_loader_data(SystemDictionary::java_system_loader()));
+    ClassLoaderData* result = ClassLoaderData::class_loader_data(SystemDictionary::java_system_loader());
+    set_class_loader_data(result);
     return;
   }
 

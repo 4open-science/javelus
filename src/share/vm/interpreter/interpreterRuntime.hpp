@@ -134,6 +134,7 @@ class InterpreterRuntime: AllStatic {
 
   // DSU support
   static void    invoke_return_barrier(JavaThread* thread);
+  static void    invoke_return_barrier_with_oop(JavaThread* thread, oopDesc* return_value);
   static void    update_stale_object(JavaThread* thread, oopDesc* obj);
   static void    update_stale_object_and_reresolve_method(JavaThread* thread, oopDesc* obj);
 

@@ -225,8 +225,13 @@ address TemplateInterpreterGenerator::generate_return_with_barrier_entry_for(Tos
     Label L;
     __ cmpptr(Address(r15_thread, JavaThread::return_barrier_id_offset()), (int32_t) NULL_WORD);
     __ jcc(Assembler::zero, L);
-    __ stop("Not implemented yet, we should preserve return value.");
-    __ call_VM(noreg, CAST_FROM_FN_PTR(address, InterpreterRuntime::invoke_return_barrier));
+    if (state == atos) {
+      __ call_VM(rax, CAST_FROM_FN_PTR(address, InterpreterRuntime::invoke_return_barrier_with_oop), rax);
+    } else {
+      __ push(state);
+      __ call_VM(noreg, CAST_FROM_FN_PTR(address, InterpreterRuntime::invoke_return_barrier));
+      __ pop(state);
+    }
     __ bind(L);
   }
   __ dispatch_next(state, step);

@@ -62,6 +62,12 @@ void DSUFlags::atomic_clear_bits(jint bits) {
   } while(f != old_flags);
 }
 
+
+
+#if !defined(PRODUCT) || INCLUDE_JVMTI
+
 void DSUFlags::print_on(outputStream* st) const {
   st->print("%d", _flags);
 }
+
+#endif // !PRODUCT || INCLUDE_JVMTI
