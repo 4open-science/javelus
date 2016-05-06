@@ -131,11 +131,11 @@ DSUError DSU::prepare(TRAPS) {
 
 
 
-bool DSU::system_modified() const{
+bool DSU::system_modified() const {
   return _system_dictionary_modification_number_at_prepare != SystemDictionary::number_of_modifications();
 }
 
-bool DSU::reflection_modified() const{
+bool DSU::reflection_modified() const{ 
   return _weak_reflection_number_at_prepare != JNIHandles::weak_reflection_modification_number();
 }
 
@@ -164,12 +164,14 @@ DSUError DSU::update(TRAPS) {
   {
     if (system_modified()) {
       DSU_WARN(("System dictionary has been modified after we prepared the DSU."));
-      return DSU_ERROR_TO_BE_ADDED;
+      set_request_state(DSU_REQUEST_SYSTEM_MODIFIED);
+      return DSU_ERROR_NONE;
     }
 
     if (reflection_modified()) {
-      DSU_WARN(("Refleciton has been modified after we prepared the DSU."));
-      return DSU_ERROR_TO_BE_ADDED;
+      DSU_WARN(("Reflection has been modified after we prepared the DSU."));
+      set_request_state(DSU_REQUEST_SYSTEM_MODIFIED);
+      return DSU_ERROR_NONE;
     }
   }
 
@@ -263,6 +265,7 @@ DSUError DSU::update(TRAPS) {
       tty->print("[DSU]-[Info]: DSU request finished at %s", ctime(&tloc));
   }
 
+  set_request_state(DSU_REQUEST_FINISHED);
   return DSU_ERROR_NONE;
 }
 
@@ -973,7 +976,7 @@ DSUError DSUClass::prepare(TRAPS) {
   }
 
   if (IgnoreAddedClass && updating_type() == DSU_CLASS_ADD) {
-    _prepared = true;
+    // _prepared = true;
     return DSU_ERROR_NONE;
   }
 
@@ -985,7 +988,6 @@ DSUError DSUClass::prepare(TRAPS) {
   }
 
   if (ret != DSU_ERROR_NONE) {
-    //return ret;
     return ret;
   }
 
@@ -1035,8 +1037,6 @@ DSUError DSUClass::prepare(TRAPS) {
       // set flags for methods
       set_restricted_methods();
       resolve_transformer(CHECK_(DSU_ERROR_RESOLVE_TRANSFORMER_FAILED));
-      // create MixVersion,TempVersion...
-      // create other data
       build_new_inplace_new_class_if_necessary(CHECK_(DSU_ERROR_TO_BE_ADDED));
       build_stale_new_class_if_necessary(CHECK_(DSU_ERROR_TO_BE_ADDED));
       old_version->set_dsu_state(DSUState::dsu_will_be_redefined);
@@ -2406,6 +2406,8 @@ DSU::~DSU() {
     assert(_shared_stream_provider->is_shared(), "sanity check");
     delete _shared_stream_provider;
   }
+
+  free_classes_to_relink();
 }
 
 
@@ -2424,6 +2426,7 @@ GrowableArray<DSUClass>*  DSU::_classes_to_relink = NULL;
 void DSU::collect_classes_to_relink(TRAPS) {
   {
     MutexLocker sd_mutex(SystemDictionary_lock);
+    free_classes_to_relink();
     _classes_to_relink = new (ResourceObj::C_HEAP, mtInternal) GrowableArray<DSUClass>(20, true);
     SystemDictionary::classes_do(check_and_append_relink_class, CHECK);
   }
@@ -5281,7 +5284,7 @@ void Javelus::update_single_thread (JavaThread* thread) {
 
 
 
-  if ( update_this_thread ) {
+  if (update_this_thread) {
     // it is a valid to_rn
 
     // We are safe to update to the next version here.
@@ -5311,14 +5314,16 @@ void Javelus::update_single_thread (JavaThread* thread) {
     // Here may be a retry of existing DSU request.
     // Just wake up the sleeping DSUThread.
     DSU_TRACE_MESG(("wakeup DSU Thread at return barrier."));
-    Javelus::wakeup_DSU_thread();
-    Javelus::waitRequest();
+    if (Javelus::active_dsu() != NULL) {
+      Javelus::wakeup_DSU_thread();
+      Javelus::waitRequest();
+    }
   } else {
     thread->print();
     ShouldNotReachHere();
   }
 
-    DSU_TRACE(0x00000100,("Thread %s leaves a return barrier.",
+  DSU_TRACE(0x00000100,("Thread %s leaves a return barrier.",
               thread->get_thread_name()
               ));
 
@@ -6336,19 +6341,21 @@ void Javelus::dsu_thread_loop() {
         DSU_WARN(("DSU Request is discarded"));
         Javelus::discard_active_dsu();
         break;
+      } else if (op->is_system_modified()) {
+        // make a retry
       } else if (op->is_interrupted()) {
         DSU_WARN(("DSU Request is interrupted"));
+        // wait until current task finished or discarded
+        // The op being executed will notify me.
+        // TODO timeout doest not implement yet!!!
+        thread->sleep(1000);
       } else {
         DSU_WARN(("Unexpected result for DSU Request."));
         Javelus::discard_active_dsu();
         break;
       }
 
-      // wait until current task finished or discarded
-      // The op being executed will notify me.
-      // TODO timeout doest not implement yet!!!
-      thread->sleep(1000);
-    }
+   }
 
     delete task;
   }

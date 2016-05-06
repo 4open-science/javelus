@@ -158,6 +158,7 @@ typedef enum {
   DSU_REQUEST_EMPTY = 3,
   DSU_REQUEST_FINISHED = 4,
   DSU_REQUEST_FAILED = 5,
+  DSU_REQUEST_SYSTEM_MODIFIED = 6,
 } DSURequestState;
 
 typedef enum {
@@ -777,6 +778,7 @@ public:
   bool is_discarded()   const { return _request_state == DSU_REQUEST_DISCARDED; }
   bool is_interrupted() const { return _request_state == DSU_REQUEST_INTERRUPTED; }
   bool is_init()        const { return _request_state == DSU_REQUEST_INIT; }
+  bool is_system_modified() const { return _request_state == DSU_REQUEST_SYSTEM_MODIFIED; }
 
   // eager update: all objects are updated eagerly.
   // But no pointers are updated eagerly, i.e., we sill have to use MixObjects.

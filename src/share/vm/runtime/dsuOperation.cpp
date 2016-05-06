@@ -115,39 +115,31 @@ bool VM_DSUOperation::doit_prologue() {
     // first of all, set the active DSU
     // Note that now we are still in the DSUThread.
     Javelus::set_active_dsu(_dsu);
-
-    _res = prepare_dsu(thread);
-
-    if (_res != DSU_ERROR_NONE) {
-      // Free os::malloc allocated memory in load_new_class_version.
-      //free_memory();
-      {
-        // notify the DSU_Thread that we are fail to execute
-        MutexLocker locker(DSURequest_lock);
-        DSURequest_lock->notify_all();
-      }
-
-      if (_res == DSU_ERROR_NO_UPDATED_CLASS) {
-        DSU_TRACE_MESG(("Discard DSU request, no updated class"));
-        set_request_state(DSU_REQUEST_EMPTY);
-      } else {
-        DSU_TRACE_MESG(("Discard DSU request, Error Code %d",_res));
-        set_request_state(DSU_REQUEST_DISCARDED);
-      }
-     return false;
-    }
-
-    return true;
   }
 
-  // This is another try of the same DSU.
-  // This is mainly because you choose to update program only at safe point.
-  // As we have prepared it before, we can just start the update anywhere.
-  // TODO in fact, we need to verify whether the system has modified due to new loaded classes
-  // and check the validity of the dsu.
-  // To be implemented.
   if (is_interrupted()) {
     DSU_TRACE_MESG(("[DSU] Continue a interrupted DSU..."));
+  }
+
+  _res = prepare_dsu(thread);
+
+  if (_res != DSU_ERROR_NONE) {
+    // Free os::malloc allocated memory in load_new_class_version.
+    //free_memory();
+    {
+      // notify the DSU_Thread that we are fail to execute
+      MutexLocker locker(DSURequest_lock);
+      DSURequest_lock->notify_all();
+    }
+
+    if (_res == DSU_ERROR_NO_UPDATED_CLASS) {
+      DSU_TRACE_MESG(("Discard DSU request, no updated class"));
+      set_request_state(DSU_REQUEST_EMPTY);
+    } else {
+      DSU_TRACE_MESG(("Discard DSU request, Error Code %d",_res));
+      set_request_state(DSU_REQUEST_DISCARDED);
+    }
+    return false;
   }
 
   return true;
@@ -172,9 +164,7 @@ void VM_DSUOperation::doit() {
     return;
   }
 
-  if (_res == DSU_ERROR_NONE) {
-    set_request_state(DSU_REQUEST_FINISHED);
-  } else {
+  if (_res != DSU_ERROR_NONE) {
     set_request_state(DSU_REQUEST_FAILED);
   }
 }

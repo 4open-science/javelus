@@ -3289,12 +3289,12 @@ void DSUThread::add_task(DSUTask * task) {
   lock()->notify_all();
 }
 
-void DSUThread::sleep(long timeout){
+void DSUThread::sleep(long timeout) {
   MutexLocker locker(lock());
   lock()->wait();
 }
 
-void DSUThread::wakeup(){
+void DSUThread::wakeup() {
   MutexLocker locker(lock());
   lock()->notify_all();
 }
