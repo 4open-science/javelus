@@ -1257,7 +1257,7 @@ void InstanceKlass::call_class_initializer_impl(instanceKlassHandle this_oop, TR
     ResourceMark rm(THREAD);
 
     methodHandle class_transformer (THREAD, this_oop->class_transformer());
-    if (class_transformer() != NULL) {
+    if (class_transformer() == NULL) {
       return;
     }
     DSU_DEBUG(("Run class transformer for class [%s].", this_oop->name()->as_C_string()));
@@ -2060,6 +2060,9 @@ void InstanceKlass::remove_dependent_nmethod(nmethod* nm) {
   tty->print_cr("### %s can't find dependent nmethod:", this->external_name());
   nm->print();
 #endif // ASSERT
+  if (is_stale_class()) {
+    return;
+  }
   ShouldNotReachHere();
 }
 

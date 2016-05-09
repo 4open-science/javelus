@@ -135,13 +135,12 @@ bool DSU::system_modified() const {
   return _system_dictionary_modification_number_at_prepare != SystemDictionary::number_of_modifications();
 }
 
-bool DSU::reflection_modified() const{ 
+bool DSU::reflection_modified() const {
   return _weak_reflection_number_at_prepare != JNIHandles::weak_reflection_modification_number();
 }
 
 // helper function to iterate all DSU classes.
-void update_single_class(DSUClass * dsu_class,TRAPS)
-{
+void update_single_class(DSUClass * dsu_class,TRAPS) {
   dsu_class->update(CHECK);
 }
 
@@ -184,14 +183,14 @@ DSUError DSU::update(TRAPS) {
       //If not safe, we perform return barrier installation.
       Javelus::install_return_barrier_all_threads();
 
-      DSU_WARN(("Not at DSU safepoint, the DSU is interrupted.."));
+      DSU_WARN(("Not at DSU safe point, the DSU is interrupted.."));
       set_request_state(DSU_REQUEST_INTERRUPTED);
       return DSU_ERROR_NONE;
     }
   }
 
   //----------------------------------------------------------------------
-  // 2). perfrom the dynamic update once we are reaching a DSU safe point
+  // 2). perform the dynamic update once we are reaching a DSU safe point
   //----------------------------------------------------------------------
 
   // 2.1). unlink compiled code
@@ -5712,6 +5711,7 @@ void Javelus::repair_application_threads() {
               assert(old_entry_index >= 0, "old entry index must be greater than 0");
               assert(new_entry_index >= 0, "new entry index must be greater than 0");
 
+#ifdef ASSERT
               Bytecodes::Code new_code  = Bytecodes::code_at(new_method, new_method->bcp_from(bci));
 
               if (code != new_code) {
@@ -5728,6 +5728,7 @@ void Javelus::repair_application_threads() {
                 new_method->print();
                 tty->print_cr("end print method");
               }
+#endif
 
               assert(new_entry_index < new_method->constants()->cache()->length(), "new entry index must be lesser than cache length");
               ConstantPoolCacheEntry * new_entry = new_method->constants()->cache()->entry_at(new_entry_index);
@@ -5735,8 +5736,6 @@ void Javelus::repair_application_threads() {
                 ConstantPoolCacheEntry * old_entry = method->constants()->cache()->entry_at(old_entry_index);
                 method->constants()->cache()->copy_method_entry_from(old_entry_index,
                   new_method->constants()->cache(), new_entry_index);
-              } else {
-                ShouldNotReachHere();
               }
             }
           }
