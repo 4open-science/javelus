@@ -1623,7 +1623,7 @@ void LinkResolver::resolve_invokeinterface(CallInfo& result, Handle recv, consta
   KlassHandle  current_klass;
   resolve_pool(resolved_klass, method_name,  method_signature, current_klass, pool, index, CHECK);
   KlassHandle recvrKlass (THREAD, recv.is_null() ? (Klass*)NULL : recv->klass());
-  if (recvrKlass.not_null() && recvrKlass->is_stale_class()){
+  if (recvrKlass.not_null() && recvrKlass->is_stale_class()) {
     Javelus::transform_object_common(recv, THREAD);
     if(HAS_PENDING_EXCEPTION){
       CLEAR_PENDING_EXCEPTION;

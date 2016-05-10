@@ -268,6 +268,7 @@ void ClassLoaderData::add_class(Klass* k) {
   // link the new item into the list
   _klasses = k;
 
+
   if (TraceClassLoaderData && Verbose && k->class_loader_data() != NULL) {
     ResourceMark rm;
     tty->print_cr("[TraceClassLoaderData] Adding k: " PTR_FORMAT " %s to CLD: "
@@ -322,6 +323,7 @@ void ClassLoaderData::unload() {
 
 oop ClassLoaderData::keep_alive_object() const {
   assert(!keep_alive(), "Don't use with CLDs that are artificially kept alive");
+  assert(_klasses == NULL || _klasses->dsu_flags().as_int() == 0, "sanity check");
   return is_anonymous() ? _klasses->java_mirror() : class_loader();
 }
 

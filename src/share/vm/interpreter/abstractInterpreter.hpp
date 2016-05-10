@@ -103,7 +103,6 @@ class AbstractInterpreter: AllStatic {
     dsu_zerolocals_synchronized,
     dsu_native,
     dsu_native_synchronized,
-    dsu_empty,
     dsu_accessor,
     number_of_method_entries,
     invalid = -1

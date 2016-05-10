@@ -465,7 +465,7 @@ class ConstantPoolCache: public MetaspaceObj {
 
   // DSU support
   void reset_all_entries();
-  void copy_method_entry_from(int to_index, ConstantPoolCache* from_cache, int from_index);
+  static void copy_method_entry(ConstantPoolCache* from_cache, int from_index, ConstantPoolCache* to_cache, int to_index);
 
   // Accessors
   void set_constant_pool(ConstantPool* pool)   { _constant_pool = pool; }

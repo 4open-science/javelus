@@ -427,7 +427,6 @@ void TemplateInterpreterGenerator::generate_all() {
   method_entry(accessor)
   method_entry(dsu_zerolocals)
   method_entry(dsu_zerolocals_synchronized)
-  method_entry(dsu_empty)
   method_entry(dsu_accessor)
   method_entry(abstract)
   method_entry(java_lang_math_sin  )

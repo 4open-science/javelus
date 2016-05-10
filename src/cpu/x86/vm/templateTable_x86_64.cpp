@@ -2995,7 +2995,7 @@ void TemplateTable::check_and_update_stale_object_before_accessing_member(Regist
     // move flags to temp
     __ movl(temp, flags);
     __ shrl(temp, ConstantPoolCacheEntry::stale_object_check_shift);
-    __ andl(temp, 0x01);
+    __ andl(temp, 0x1);
 
     // Note:: if a member requires mixed object check then it must require a stale object check.
     // This is the same to type narrow check.
@@ -3011,18 +3011,25 @@ void TemplateTable::check_and_update_stale_object_before_accessing_member(Regist
     Label skip_type_narrow_check;
     __ movl(temp, flags);
     __ shrl(temp, ConstantPoolCacheEntry::type_narrow_check_shift);
-    __ andl(temp, 0x01);
-    __ jcc(Assembler::zero, skip_type_narrow_check);
+    __ andl(temp, 0x1);
+
+    if (do_mixed_object_check) {
+      __ jcc(Assembler::zero, skip_type_narrow_check);
+    } else {
+      __ jcc(Assembler::zero, skip_check);
+    }
 
     type_narrow_check(obj, temp);
 
-    __ bind(skip_type_narrow_check); // skip type narrow check, but we may do mixed object check.
+    if (do_mixed_object_check) {
+      __ bind(skip_type_narrow_check); // skip type narrow check, but we may do mixed object check.
+    }
   }
 
   if (do_mixed_object_check) {
     __ movl(temp, flags);
     __ shrl(temp, ConstantPoolCacheEntry::mixed_object_check_shift);
-    __ andl(temp, 0x01);
+    __ andl(temp, 0x1);
     __ jcc(Assembler::zero, skip_check); // not a mixed object, finish check.
 
     check_and_load_mixed_object(obj, temp);
@@ -3206,7 +3213,7 @@ void TemplateTable::invokevirtual_helper(Register index,
 
   // do the call - the index is actually the method to call
   // that is, f2 is a vtable index if !is_vfinal, else f2 is a Method*
- 
+
   // It's final, need a null check here!
   __ null_check(recv);
 

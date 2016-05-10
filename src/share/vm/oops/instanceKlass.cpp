@@ -193,8 +193,9 @@ InstanceKlass* InstanceKlass::clone_instance_klass(InstanceKlass* klass, TRAPS) 
   const int nonstatic_oop_map_size =
       InstanceKlass::nonstatic_oop_map_size(nonstatic_oop_map_count);
 
+  Klass* new_next = newik->next_link();
   memcpy(newik, klass, klass->size() * (HeapWordSize));
-
+  newik->set_next_link(new_next);
   return newik;
 }
 
@@ -411,7 +412,6 @@ void InstanceKlass::deallocate_interfaces(ClassLoaderData* loader_data,
 // This function deallocates the metadata and C heap pointers that the
 // InstanceKlass points to.
 void InstanceKlass::deallocate_contents(ClassLoaderData* loader_data) {
-
   // Orphan the mirror first, CMS thinks it's still live.
   if (java_mirror() != NULL) {
     java_lang_Class::set_klass(java_mirror(), NULL);
@@ -1257,7 +1257,7 @@ void InstanceKlass::call_class_initializer_impl(instanceKlassHandle this_oop, TR
     ResourceMark rm(THREAD);
 
     methodHandle class_transformer (THREAD, this_oop->class_transformer());
-    if (class_transformer() == NULL) {
+    if (class_transformer.is_null()) {
       return;
     }
     DSU_DEBUG(("Run class transformer for class [%s].", this_oop->name()->as_C_string()));

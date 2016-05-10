@@ -621,7 +621,6 @@ static inline intptr_t get_next_hash(Thread * Self, oop obj) {
 intptr_t ObjectSynchronizer::FastHashCode (Thread * Self, oop obj) {
   markOop mark = ReadStableMark (obj);
   if (mark->is_mixed_object()) {
-    tty->print_cr("mixed object");
     obj = (oop) mark->decode_phantom_object_pointer();
     mark = ReadStableMark (obj);
   }

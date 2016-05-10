@@ -719,7 +719,8 @@ IRT_END
 // for implicit update by dynamic method call
 // we need to update the constant pool cache accordingly.
 IRT_ENTRY(void, InterpreterRuntime::update_stale_object_and_reresolve_method(JavaThread* thread, oopDesc* recv))
-{ ResourceMark rm(thread);
+{
+  ResourceMark rm(thread);
   Handle receiver(thread, recv);
 
   instanceKlassHandle ikh (receiver->klass());
@@ -762,9 +763,10 @@ IRT_ENTRY(void, InterpreterRuntime::update_stale_object_and_reresolve_method(Jav
 
   // check if link resolution caused cpCache to be updated
   if (already_resolved(thread)) {
-    thread->set_vm_result_2(info.resolved_method()());
+    thread->set_vm_result_2(info.selected_method()());
     return;
   }
+
   if (bytecode == Bytecodes::_invokeinterface) {
     if (TraceItables && Verbose) {
       ResourceMark rm(thread);

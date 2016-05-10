@@ -76,8 +76,6 @@ void DSUMethod::print() {
   //tty->print_cr("DSUMethod state is %d",_state);
 }
 
-
-
 // -------------------- DSU -----------------------------------------
 
 DSU::DSU()
@@ -677,10 +675,14 @@ void DSUClass::compute_and_set_fields(InstanceKlass* old_version,
   // compute
   compute_and_cache_common_info(old_version, new_version, CHECK);
 
-  if (!new_version->is_initialized()) {
-    typeArrayOop r = oopFactory::new_typeArray(T_INT, 0, CHECK);
-    java_lang_Class::set_init_lock(old_version->java_mirror(), r);
-  }
+  // TODO
+  // if (!new_version->is_initialized()) {
+  //   typeArrayOop r = oopFactory::new_typeArray(T_INT, 0, CHECK);
+  //   if (java_lang_Class::init_lock(old_version->java_mirror()) == NULL) {
+  //     tty->print_cr("Null ");
+  //   }
+  //   java_lang_Class::set_init_lock(old_version->java_mirror(), r);
+  // }
 
   bool do_print = false;/*old_version->name()->starts_with("org/apache/catalina/core/ContainerBase")*/;
 
@@ -2060,7 +2062,6 @@ void DSUClass::redefine_class(TRAPS) {
   post_fix_new_version            (old_version, new_version, CHECK);
   post_fix_new_inplace_new_class  (old_version, new_version, CHECK);
   post_fix_stale_new_class        (old_version, new_version, CHECK);
-
 }
 
 void DSUClass::install_new_version(InstanceKlass* old_version, InstanceKlass* new_version, TRAPS) {
@@ -2136,8 +2137,7 @@ void DSUClass::update_jmethod_ids(InstanceKlass* new_version, TRAPS) {
 
 // do some fixes after we have redefine a class
 void DSUClass::post_fix_old_version(InstanceKlass* old_version,
-  InstanceKlass* new_version,
-  TRAPS) {
+  InstanceKlass* new_version, TRAPS) {
   DSUClassUpdatingType updating_type = this->updating_type();
 
   if (old_version->oop_map_cache() != NULL) {
@@ -4049,6 +4049,7 @@ void DSUDirectStreamProvider::print() {
   tty->print_cr("DSUDirectStreamProvider Provider");
 }
 
+
 DSUError  DSUClassLoader::load_new_version(Symbol* name, InstanceKlass* &new_class,
     DSUStreamProvider *stream_provider, TRAPS) {
   ResourceMark rm(THREAD);
@@ -5221,7 +5222,7 @@ void Javelus::repair_single_thread(JavaThread * thread) {
             if (UseInterpreter && !new_entry->is_resolved(code)) {
               ConstantPoolCacheEntry * old_entry = method->constants()->cache()->entry_at(old_entry_index);
               assert(old_entry->is_resolved(code), "old entry must be resolved..");
-              method->constants()->cache()->copy_method_entry_from(old_entry_index, new_method->constants()->cache(), new_entry_index);
+              ConstantPoolCache::copy_method_entry(method->constants()->cache(), old_entry_index, new_method->constants()->cache(), new_entry_index);
             } else {
               DSU_WARN(("Thread repair finds a resolved new entry"));
             }
@@ -5694,7 +5695,7 @@ void Javelus::repair_application_threads() {
 
             if (callee != NULL && callee->is_interpreted_frame()) {
               // TODO callee may be a deoptimized interpreteed frame.
-              Bytecodes::Code code  = Bytecodes::code_at(method,method->bcp_from(bci));
+              Bytecodes::Code code  = Bytecodes::code_at(method, method->bcp_from(bci));
               // in fact bci may be monitor entry
               assert(bci > 0, "can invokestatic be the first stmt.");
 
@@ -5730,11 +5731,11 @@ void Javelus::repair_application_threads() {
               }
 #endif
 
+              // update callee entry, we only do a partial initialize of the new entry
               assert(new_entry_index < new_method->constants()->cache()->length(), "new entry index must be lesser than cache length");
               ConstantPoolCacheEntry * new_entry = new_method->constants()->cache()->entry_at(new_entry_index);
-              if (!new_entry->is_resolved(code)) {
-                ConstantPoolCacheEntry * old_entry = method->constants()->cache()->entry_at(old_entry_index);
-                method->constants()->cache()->copy_method_entry_from(old_entry_index,
+              if (UseInterpreter && !new_entry->is_resolved(code)) {
+                ConstantPoolCache::copy_method_entry(method->constants()->cache(), old_entry_index,
                   new_method->constants()->cache(), new_entry_index);
               }
             }
@@ -5906,7 +5907,8 @@ bool Javelus::transform_object_common_no_lock(Handle stale_object, TRAPS){
               CHECK_false);
             assert(stale_object->mark()->is_mixed_object(), "sanity check");
           } else { // simple to simple
-            DSU_TRACE(0x00001000,("Transforming Object: [simple2simple] [%s]  [%d : %d]",stale_klass->name()->as_C_string(),c_dead_rn,t_crn));
+            DSU_TRACE(0x00001000,("Transforming Object: [simple2simple] [%s] ["PTR_FORMAT"] [%d : %d]",
+                  stale_klass->name()->as_C_string(), p2i(stale_object()), c_dead_rn, t_crn));
             run_transformer(
               stale_object,
               stale_object,
@@ -5957,8 +5959,8 @@ bool Javelus::transform_object_common(Handle obj, TRAPS) {
   if (DSUEagerUpdate_lock->owner() == thread) {
     transformed = transform_object_common_no_lock(obj, CHECK_false);
   } else {
-    //Handle lock (THREAD, SystemDictionary::Object_klass());
-    //ObjectLocker locker (lock, THREAD);
+    Handle lock (THREAD, stale_klass->java_mirror());
+    ObjectLocker locker (lock, THREAD);
     transformed = transform_object_common_no_lock(obj, CHECK_false);
   }
 

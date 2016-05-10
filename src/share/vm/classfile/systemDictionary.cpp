@@ -1453,7 +1453,7 @@ void SystemDictionary::define_instance_class(instanceKlassHandle k, TRAPS) {
 }
 
 // DSUClass::redefine_class
-void SystemDictionary::redefine_instance_class(instanceKlassHandle old_class, instanceKlassHandle new_class, TRAPS){
+void SystemDictionary::redefine_instance_class(instanceKlassHandle old_class, instanceKlassHandle new_class, TRAPS) {
   ClassLoaderData* loader_data = new_class->class_loader_data();
   Symbol* class_name = new_class->name();
 
@@ -1800,6 +1800,9 @@ void SystemDictionary::roots_oops_do(OopClosure* strong, OopClosure* weak) {
 
   // Adjust dictionary
   dictionary()->roots_oops_do(strong, weak);
+
+  // Javelus
+  Javelus::oops_do(strong);
 
   // Visit extra methods
   invoke_method_table()->oops_do(strong);

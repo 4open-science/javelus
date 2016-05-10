@@ -756,7 +756,7 @@ address InterpreterGenerator::generate_accessor_entry(void) {
     Label noCheck, notStale;
     __ movl(rdi, rdx);
     __ shrl(rdi, ConstantPoolCacheEntry::stale_object_check_shift);
-    __ andl(rdi, 0x01);
+    __ andl(rdi, 0x1);
     __ jcc(Assembler::zero, noCheck);
 
     __ load_klass(rdi, rax);
@@ -775,7 +775,7 @@ address InterpreterGenerator::generate_accessor_entry(void) {
 
     __ movl(rdi, rdx);
     __ shrl(rdi, ConstantPoolCacheEntry::mixed_object_check_shift);
-    __ andl(rdi, 0x01);
+    __ andl(rdi, 0x1);
     __ jcc(Assembler::zero, noCheck);
 
     Address mark_word = Address(rax, 0);
@@ -1507,7 +1507,7 @@ address InterpreterGenerator::generate_native_entry(bool synchronized) {
   return entry_point;
 }
 
-address InterpreterGenerator::generate_dsu_method_entry(AbstractInterpreter::MethodKind kind){
+address InterpreterGenerator::generate_dsu_method_entry(AbstractInterpreter::MethodKind kind) {
 
   // ebx: Method*
   // r13: sender sp
@@ -1515,10 +1515,8 @@ address InterpreterGenerator::generate_dsu_method_entry(AbstractInterpreter::Met
   Label no_update;
 
   const Address constMethod(rbx, Method::const_offset());
-  const Address access_flags(rbx, Method::access_flags_offset());
   const Address size_of_parameters(rdx,
                                    ConstMethod::size_of_parameters_offset());
-  const Address size_of_locals(rdx, ConstMethod::size_of_locals_offset());
 
 
   // get parameter size (always needed)
@@ -1527,7 +1525,7 @@ address InterpreterGenerator::generate_dsu_method_entry(AbstractInterpreter::Met
 
   {
     // pop return address
-    __ pop(rax);
+    __ pop(rdx);
     // Now, rsp points to the top of the previous frame.
 
     // compute beginning of parameters (rdi)
@@ -1540,7 +1538,7 @@ address InterpreterGenerator::generate_dsu_method_entry(AbstractInterpreter::Met
     __ verify_oop(rcx);
 
     // push return address again..
-    __ push(rax);
+    __ push(rdx);
   }
 
   // load klass and test
@@ -1582,17 +1580,15 @@ address InterpreterGenerator::generate_dsu_method_entry(AbstractInterpreter::Met
   __ movptr(Address(rax, JavaThread::vm_result_2_offset()), NULL_WORD);
 
   // save sender sp
-  __ prepare_to_jump_from_interpreted();
   __ bind(no_update);
-
+  __ prepare_to_jump_from_interpreted();
 
   // non-mix entry must be generated before this.
-  switch(kind){
+  switch (kind) {
     case Interpreter::dsu_zerolocals             : (void*)generate_normal_entry(false); break;
     case Interpreter::dsu_zerolocals_synchronized: (void*)generate_normal_entry(true); break;
     case Interpreter::dsu_native                 : (void*)generate_native_entry(false); break;
     case Interpreter::dsu_native_synchronized    : (void*)generate_native_entry(true); break;
-    case Interpreter::dsu_empty                  : (void*)generate_empty_entry();  break;
     case Interpreter::dsu_accessor               : (void*)generate_accessor_entry();break;
     default                                             : ShouldNotReachHere();                            break;
   }
@@ -1855,7 +1851,6 @@ address AbstractInterpreterGenerator::generate_method_entry(
   case Interpreter::dsu_zerolocals_synchronized:  // fall thru
   case Interpreter::dsu_native                 :  // fall thru
   case Interpreter::dsu_native_synchronized    :  // fall thru
-  case Interpreter::dsu_empty                  :  // fall thru/
   case Interpreter::dsu_accessor               : entry_point = ig_this->generate_dsu_method_entry(kind);    break;
   default:
     fatal(err_msg("unexpected method kind: %d", kind));

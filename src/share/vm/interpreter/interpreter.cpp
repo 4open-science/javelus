@@ -234,9 +234,6 @@ AbstractInterpreter::MethodKind AbstractInterpreter::method_kind(methodHandle m)
 
   // Empty method?
   if (m->is_empty_method()) {
-    if (m->needs_stale_object_check()) {
-      return dsu_empty;
-    }
     return empty;
   }
 
@@ -330,7 +327,6 @@ void AbstractInterpreter::print_method_kind(MethodKind kind) {
     case dsu_zerolocals_synchronized: tty->print("dsu_zerolocals_synchronized"); break;
     case dsu_native                 : tty->print("dsu_native"                 ); break;
     case dsu_native_synchronized    : tty->print("dsu_native_synchronized"    ); break;
-    case dsu_empty                  : tty->print("dsu_empty"                  ); break;
     default:
       if (kind >= method_handle_invoke_FIRST &&
           kind <= method_handle_invoke_LAST) {

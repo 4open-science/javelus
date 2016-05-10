@@ -712,12 +712,12 @@ void ConstantPoolCache::reset_all_entries() {
   }
 }
 
-void ConstantPoolCache::copy_method_entry_from(int to_index,
-    ConstantPoolCache* from_cache, int from_index) {
-  ConstantPoolCacheEntry * to_entry = entry_at(to_index);
-  assert(to_entry->is_method_entry(),"old entry must be an method entry");
-
+void ConstantPoolCache::copy_method_entry(ConstantPoolCache* from_cache, int from_index,
+    ConstantPoolCache* to_cache, int to_index) {
+  ConstantPoolCacheEntry * to_entry = to_cache->entry_at(to_index);
   ConstantPoolCacheEntry * from_entry = from_cache->entry_at(from_index);
+  assert(from_entry->is_method_entry(), "old entry must be an method entry");
+
   const int constant_pool_index = from_entry->constant_pool_index();
   memcpy((void*)(from_entry), (void*)(to_entry), sizeof(ConstantPoolCacheEntry));
   to_entry->initialize_entry(constant_pool_index);
