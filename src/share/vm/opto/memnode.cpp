@@ -901,9 +901,10 @@ Node *LoadNode::make(PhaseGVN& gvn, Node *ctl, Node *mem, Node *adr, const TypeP
   Compile* C = gvn.C;
 
   // sanity check the alias category against the created node type
-  assert(!(adr_type->isa_oopptr() &&
-           adr_type->offset() == oopDesc::klass_offset_in_bytes()),
-         "use LoadKlassNode instead");
+  // Javelus that can load klass
+  // assert(!(adr_type->isa_oopptr() &&
+  //         adr_type->offset() == oopDesc::klass_offset_in_bytes()),
+  //       "use LoadKlassNode instead");
   assert(!(adr_type->isa_aryptr() &&
            adr_type->offset() == arrayOopDesc::length_offset_in_bytes()),
          "use LoadRangeNode instead");

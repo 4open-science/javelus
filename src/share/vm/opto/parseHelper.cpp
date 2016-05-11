@@ -679,12 +679,10 @@ Node* GraphKit::do_stale_object_check(Node* recv, bool check_mixed_object) {
   Node* access_flags_addr = basic_plus_adr(klass, in_bytes(Klass::dsu_flags_offset()));
   Node* access_flags = make_load(NULL, access_flags_addr, TypeInt::INT, T_INT, MemNode::unordered);
 
-//  //XXX JVM_ACC_IS_INVALID_MEMBER == JVM_ACC_INTERFACE_BIT == 9
-  //Node *invalid_value = _gvn.MakeConX(9);
-  Node *invalid_value = _gvn.MakeConX(DSU_FLAGS_CLASS_IS_STALE_CLASS);
-  Node *lmasked_flag  = _gvn.transform(new (C) AndXNode( access_flags, invalid_value));
-  Node *chk_invalid   = _gvn.transform(new (C) CmpXNode( lmasked_flag, invalid_value));
-  Node *test_invalid  = _gvn.transform(new (C) BoolNode( chk_invalid, BoolTest::ne) );
+  Node *invalid_value = intcon(DSU_FLAGS_CLASS_IS_STALE_CLASS);
+  Node *lmasked_flag  = _gvn.transform(new (C) AndINode(access_flags, invalid_value));
+  Node *chk_invalid   = _gvn.transform(new (C) CmpINode(lmasked_flag, invalid_value));
+  Node *test_invalid  = _gvn.transform(new (C) BoolNode(chk_invalid, BoolTest::ne) );
 
   // not equal == true ==> not invalid ==> valid
   IfNode* iff = create_and_map_if(control(), test_invalid, PROB_MIN, COUNT_UNKNOWN);
@@ -700,9 +698,9 @@ Node* GraphKit::do_stale_object_check(Node* recv, bool check_mixed_object) {
 
   Node* if_invalid = _gvn.transform(new (C) IfFalseNode(iff)); 
   set_control(if_invalid);
- 
+
   kill_dead_locals();
-  Node * call = make_runtime_call(RC_NO_LEAF, 
+  Node * call = make_runtime_call(RC_NO_LEAF,
     OptoRuntime::update_stale_object_Type(),
     OptoRuntime::update_stale_object_Java(),
     "invalid object check",
@@ -747,7 +745,7 @@ Node* GraphKit::do_mixed_object_check(Node* obj) {
 
   Node* result_rgn = new (C) RegionNode(1+2); // fast slow;
   Node* result_val = new (C) PhiNode(result_rgn, t); // fast slow;
-  
+
   Node* header_addr = basic_plus_adr(obj, oopDesc::mark_offset_in_bytes());
   Node* header      = make_load(control(), header_addr, TypeX_X, TypeX_X->basic_type(), MemNode::unordered);
 
@@ -766,7 +764,7 @@ Node* GraphKit::do_mixed_object_check(Node* obj) {
   result_val->init_req(not_mixed_object_path, obj);
 
   set_control(if_mix);
-  
+
   assert(!stopped(),"cannot be stopped!");
 
   Node *clear_mark = _gvn.MakeConX(~markOopDesc::mixed_object_mask_in_place);
