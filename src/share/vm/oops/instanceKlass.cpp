@@ -2309,6 +2309,14 @@ int InstanceKlass::oop_oop_iterate##nv_suffix(oop obj, OopClosureType* closure) 
   if_do_metadata_checked(closure, nv_suffix) {                          \
     closure->do_klass##nv_suffix(obj->klass());                         \
   }                                                                     \
+  if (obj->mark()->is_mixed_object()) {                                                       \
+    oop phantom_object = oop(obj->mark()->decode_phantom_object_pointer());                   \
+    obj->set_mark(markOop(phantom_object));                                                   \
+    (closure)->do_oop##nv_suffix((oop*)obj->mark_addr());                                     \
+    phantom_object = oop(obj->mark());                                                        \
+    markOop new_mark = markOopDesc::encode_phantom_object_pointer_as_mark(phantom_object);    \
+    obj->set_mark(new_mark);                                                                  \
+  }                                                                                           \
   InstanceKlass_OOP_MAP_ITERATE(                                        \
     obj,                                                                \
     SpecializationStats::                                               \
@@ -2326,7 +2334,15 @@ int InstanceKlass::oop_oop_iterate_backwards##nv_suffix(oop obj,                
   SpecializationStats::record_iterate_call##nv_suffix(SpecializationStats::ik); \
                                                                                 \
   assert_should_ignore_metadata(closure, nv_suffix);                            \
-                                                                                \
+  if (obj->mark()->is_mixed_object()) {                                                       \
+    oop phantom_object = oop(obj->mark()->decode_phantom_object_pointer());                   \
+    obj->set_mark(markOop(phantom_object));                                                   \
+    (closure)->do_oop##nv_suffix((oop*)obj->mark_addr());                                     \
+    phantom_object = oop(obj->mark());                                                        \
+    markOop new_mark = markOopDesc::encode_phantom_object_pointer_as_mark(phantom_object);    \
+    obj->set_mark(new_mark);                                                                  \
+  }                                                                                           \
+                                                                                 \
   /* instance variables */                                                      \
   InstanceKlass_OOP_MAP_REVERSE_ITERATE(                                        \
     obj,                                                                        \
