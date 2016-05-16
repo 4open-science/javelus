@@ -1393,7 +1393,8 @@ DSUError DSUClass::compare_and_normalize_class(InstanceKlass* old_version,
   if (old_flags != new_flags) {
     //new_updating_type = Javelus::join(new_updating_type, DSU_CLASS_BC);
     //new_updating_type = Javelus::join(new_updating_type, DSU_CLASS_NONE);
-    assert(false, "to be considered");
+    //assert(false, "to be considered");
+    new_updating_type = Javelus::join(new_updating_type, DSU_CLASS_BOTH);
   }
 
 
