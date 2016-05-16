@@ -1199,21 +1199,20 @@ DSUError DSUClass::build_new_inplace_new_class_if_necessary(TRAPS) {
   OopMapBlock* inplace_map = new_inplace_new_class->start_of_nonstatic_oop_maps();
   const int oop_map_count  = new_version->nonstatic_oop_map_count();
 
+  assert(!UseCompressedOops, "not implemented");
+
   {
     for(int i=0; i< oop_map_count; i++) {
       int off_start = oop_map[i].offset();
-      int off_count =  oop_map[i].count();
-      int c1_count = old_object_size - off_start;
-      if (c1_count < off_count) {
-        int c1_offset;
-        if (c1_count > 0) {
-          c1_offset = off_start;
+      int off_count = oop_map[i].count();
+      int off_end   = off_start + heapOopSize * off_count;
+      if (off_end > old_object_size) {
+        if (off_start > old_object_size) {
+          inplace_map[i].set_count(0);
         } else {
-          c1_count = 0;
-          c1_offset = off_start; //0;
+          int c1_count = (old_object_size - off_start) / heapOopSize;
+          inplace_map[i].set_count(c1_count);
         }
-        inplace_map[i].set_offset(c1_offset);
-        inplace_map[i].set_count(c1_count);
       }
     }
   }
@@ -2425,8 +2424,9 @@ GrowableArray<DSUClass>*  DSU::_classes_to_relink = NULL;
 void DSU::collect_classes_to_relink(TRAPS) {
   {
     MutexLocker sd_mutex(SystemDictionary_lock);
-    free_classes_to_relink();
-    _classes_to_relink = new (ResourceObj::C_HEAP, mtInternal) GrowableArray<DSUClass>(20, true);
+    if (_classes_to_relink == NULL) {
+      _classes_to_relink = new (ResourceObj::C_HEAP, mtInternal) GrowableArray<DSUClass>(20, true);
+    }
     SystemDictionary::classes_do(check_and_append_relink_class, CHECK);
   }
 
@@ -2515,7 +2515,8 @@ void DSU::append_classes_to_relink(InstanceKlass* ikh) {
   // create a stack DSUClass object to pass parameters into append
   DSUClass dsu_class;
 
-  dsu_class.set_updating_type(DSU_CLASS_BC);
+  // TODO: why it is BC before
+  dsu_class.set_updating_type(DSU_CLASS_MC);
   dsu_class.set_old_version(ikh);
 
   // does it required?
@@ -5697,7 +5698,7 @@ void Javelus::repair_application_threads() {
               // TODO callee may be a deoptimized interpreteed frame.
               Bytecodes::Code code  = Bytecodes::code_at(method, method->bcp_from(bci));
               // in fact bci may be monitor entry
-              assert(bci > 0, "can invokestatic be the first stmt.");
+              assert(bci >= 0, "can invokestatic be the first stmt.");
 
               if (!(code >= Bytecodes::_invokevirtual && code <= Bytecodes::_invokedynamic)) {
                 tty->print_cr("code is %d, bci is  %d", code, bci);
@@ -6123,6 +6124,7 @@ void run_default_transformer(Handle inplace_object, Handle old_phantom_object, H
       Javelus::relink_mixed_object(inplace_object, old_phantom_object, new_phantom_object, CHECK);
     } else if (unlink_mixed) {
       Javelus::unlink_mixed_object(inplace_object, old_phantom_object, CHECK);
+    } else {
     }
     // now the object may is a simple object or a mixed object with empty fields.
   }
@@ -6344,6 +6346,7 @@ void Javelus::dsu_thread_loop() {
         break;
       } else if (op->is_system_modified()) {
         // make a retry
+        DSU_WARN(("DSU Request will be retried immediately."));
       } else if (op->is_interrupted()) {
         DSU_WARN(("DSU Request is interrupted"));
         // wait until current task finished or discarded

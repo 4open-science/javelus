@@ -420,7 +420,7 @@ class GraphKit : public Phase {
 
   // Cast obj to not-null on this path
   Node* cast_not_null(Node* obj, bool do_replace_in_map = true);
-  Node* cast_valid(Node* obj, bool do_replace_in_map = true);
+  Node* cast_valid(Node* obj, const Type* t, bool do_replace_in_map = true);
 
   // Replace all occurrences of one node by another.
   void replace_in_map(Node* old, Node* neww);

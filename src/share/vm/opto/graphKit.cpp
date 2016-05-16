@@ -1386,8 +1386,7 @@ Node* GraphKit::cast_not_null(Node* obj, bool do_replace_in_map) {
 
 //------------------------------cast_not_invalid----------------------------------
 // Cast obj to not-null on this path
-Node* GraphKit::cast_valid(Node* obj, bool do_replace_in_map) {
-  const Type *t = _gvn.type(obj);
+Node* GraphKit::cast_valid(Node* obj, const Type* t, bool do_replace_in_map) {
   if (!t->isa_instptr()) {
     return obj;
   }
@@ -1395,11 +1394,12 @@ Node* GraphKit::cast_valid(Node* obj, bool do_replace_in_map) {
   //XXX Not null is invalid
   const Type *t_valid = t->join(TypePtr::VALID_PTR);
   // Object is already valid?
-  if( t == t_valid ) return obj;
+  if(t == t_valid) return obj;
 
+  assert(_gvn.type(obj) != NULL, "sanity check");
   Node *cast = new (C) CastPPNode(obj, t_valid);
   cast->init_req(0, control());
-  cast = _gvn.transform( cast );
+  cast = _gvn.transform(cast);
 
   // Scan for instances of 'obj' in the current JVM mapping.
   // These instances are known to be not-null after the test.

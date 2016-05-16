@@ -649,6 +649,7 @@ Node* GraphKit::do_stale_object_check(Node* recv, bool check_mixed_object) {
 
   //XXX t must be an TypeOopPtr, or TypeInstPtr infact
   if (EliminateCheckPoint && t->higher_equal(TypePtr::VALID_PTR)) {
+    tty->print_cr("Eliminated");
     if (PrintCheckPointElimination) {
       ResourceMark rm;
       DSU_INFO(("Eliminate invalid check for method %s::%s%s at bci %d",
@@ -664,6 +665,29 @@ Node* GraphKit::do_stale_object_check(Node* recv, bool check_mixed_object) {
     return recv;
   }
 
+  assert(!t->higher_equal(TypePtr::VALID_PTR), "sanity check");
+
+  kill_dead_locals();
+  Node * call = make_runtime_call(RC_NO_LEAF,
+    OptoRuntime::update_stale_object_Type(),
+    OptoRuntime::update_stale_object_Java(),
+    "invalid object check",
+    TypePtr::BOTTOM,
+    recv);
+
+  make_slow_call_ex(call, env()->Throwable_klass(), true);
+
+  Node* result = _gvn.transform(new (C) ProjNode(call, TypeFunc::Parms));
+  //cast_valid(recv, t, true);
+  recv = cast_valid(result, t, false);
+
+  if (check_mixed_object) {
+    return do_mixed_object_check(recv);
+  }
+
+  return recv;
+
+#if 0
   if (PrintCheckPoint) {
     ResourceMark rm;
     DSU_INFO(("Invalid check for method %s::%s%s at bci %d",
@@ -673,30 +697,36 @@ Node* GraphKit::do_stale_object_check(Node* recv, bool check_mixed_object) {
       bci()));
   }
 
+  RegionNode* result_rgn = new(C) RegionNode(3);
+  PhiNode*    result_val = new(C) PhiNode(result_rgn, t->join(TypePtr::VALID_PTR));
+  PhiNode*    result_io  = new(C) PhiNode(result_rgn, Type::ABIO);
+  PhiNode*    result_mem = new(C) PhiNode(result_rgn, Type::MEMORY, TypePtr::BOTTOM);
+
   // Below code are copied from  Parse::call_register_finalizer at parse1.cpp
-  Node* klass_addr = basic_plus_adr( recv, recv, oopDesc::klass_offset_in_bytes() );
-  Node* klass = make_load(NULL, klass_addr, TypeInstPtr::BOTTOM, T_OBJECT, MemNode::unordered);
+  Node* klass_addr = basic_plus_adr(recv, recv, oopDesc::klass_offset_in_bytes());
+  Node* klass = make_load(control(), klass_addr, TypeRawPtr::BOTTOM, T_ADDRESS, MemNode::acquire);
   Node* access_flags_addr = basic_plus_adr(klass, in_bytes(Klass::dsu_flags_offset()));
-  Node* access_flags = make_load(NULL, access_flags_addr, TypeInt::INT, T_INT, MemNode::unordered);
+  Node* access_flags = make_load(control(), access_flags_addr, TypeInt::INT, T_INT, MemNode::acquire);
 
   Node *invalid_value = intcon(DSU_FLAGS_CLASS_IS_STALE_CLASS);
   Node *lmasked_flag  = _gvn.transform(new (C) AndINode(access_flags, invalid_value));
   Node *chk_invalid   = _gvn.transform(new (C) CmpINode(lmasked_flag, invalid_value));
   Node *test_invalid  = _gvn.transform(new (C) BoolNode(chk_invalid, BoolTest::ne) );
 
+
   // not equal == true ==> not invalid ==> valid
   IfNode* iff = create_and_map_if(control(), test_invalid, PROB_MIN, COUNT_UNKNOWN);
 
   // invalid_false
-  RegionNode* result_rgn = new (C) RegionNode(3);
-
   // not eq, a valid object
   Node* if_valid = _gvn.transform(new (C) IfTrueNode(iff));
   set_control(if_valid);
-  recv = cast_valid(_gvn.transform(recv), true);
-  result_rgn->init_req(1, if_valid);
 
-  Node* if_invalid = _gvn.transform(new (C) IfFalseNode(iff)); 
+  recv = cast_valid(recv, t, false);
+  result_rgn->init_req(1, if_valid);
+  result_val->init_req(1, recv);
+
+  Node* if_invalid = _gvn.transform(new (C) IfFalseNode(iff));
   set_control(if_invalid);
 
   kill_dead_locals();
@@ -709,30 +739,32 @@ Node* GraphKit::do_stale_object_check(Node* recv, bool check_mixed_object) {
 
   make_slow_call_ex(call, env()->Throwable_klass(), true);
 
-  recv = cast_valid(_gvn.transform(new (C) ProjNode(call, TypeFunc::Parms)), true);
-
-  Node* fast_io  = call->in(TypeFunc::I_O);
-  Node* fast_mem = call->in(TypeFunc::Memory);
-  // These two phis are pre-filled with copies of of the fast IO and Memory
-  Node* io_phi   = PhiNode::make(result_rgn, fast_io,  Type::ABIO);
-  Node* mem_phi  = PhiNode::make(result_rgn, fast_mem, Type::MEMORY, TypePtr::BOTTOM);
-
+  //// get return value
+  recv = _gvn.transform(new (C) ProjNode(call, TypeFunc::Parms));
+  recv = cast_valid(recv, t, false);
   result_rgn->init_req(2, control());
-  io_phi    ->init_req(2, i_o());
-  mem_phi   ->init_req(2, reset_memory());
+  result_val->init_req(2, recv);
+  Node* init_mem = reset_memory();
+  result_mem->init_req(2, init_mem);
+  result_mem->init_req(1, init_mem);
+  result_io ->init_req(2, i_o());
+  result_io ->init_req(1, i_o());
 
-  set_all_memory( _gvn.transform(mem_phi) );
-  set_i_o(        _gvn.transform(io_phi) );
+
+  set_all_memory(_gvn.transform(result_mem));
+  set_i_o(       _gvn.transform(result_io));
 
   // at last set merge point
-  set_control( _gvn.transform(result_rgn) );
+  set_control(_gvn.transform(result_rgn));
   record_for_igvn(result_rgn);
 
   if (check_mixed_object) {
-    return do_mixed_object_check(recv);
+    return do_mixed_object_check(result_val);
   }
 
-  return recv;
+  _gvn.transform(result_val);
+  return result_val;
+#endif
 }
 
 Node* GraphKit::do_mixed_object_check(Node* obj) {
@@ -747,7 +779,7 @@ Node* GraphKit::do_mixed_object_check(Node* obj) {
   Node* result_val = new (C) PhiNode(result_rgn, t); // fast slow;
 
   Node* header_addr = basic_plus_adr(obj, oopDesc::mark_offset_in_bytes());
-  Node* header      = make_load(control(), header_addr, TypeX_X, TypeX_X->basic_type(), MemNode::unordered);
+  Node* header      = make_load(control(), header_addr, TypeX_X, TypeX_X->basic_type(), MemNode::acquire);
 
   Node *marked_mask        = _gvn.MakeConX(markOopDesc::mixed_object_value);
   Node *mark_masked_header = _gvn.transform(new (C) AndXNode(header, marked_mask) );

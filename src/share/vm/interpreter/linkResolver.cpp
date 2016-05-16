@@ -233,6 +233,11 @@ void LinkResolver::check_klass_accessability(KlassHandle ref_klass, KlassHandle 
 
 void LinkResolver::resolve_klass(KlassHandle& result, constantPoolHandle pool, int index, TRAPS) {
   Klass* result_oop = pool->klass_ref_at(index, CHECK);
+  if (result_oop->is_stale_class()) {
+    tty->print_cr("Resolve a stale class");
+    result_oop->print();
+  }
+  assert(!result_oop->is_stale_class(), "sanity check");
   result = KlassHandle(THREAD, result_oop);
 }
 
@@ -1267,7 +1272,7 @@ void LinkResolver::runtime_resolve_virtual_method(CallInfo& result,
   assert(!resolved_klass->is_stale_class(), "should resolve to a stale class.");
   assert(!recv_klass->is_stale_class(), "should resolve to a stale class.");
 
-  if(resolved_klass->is_new_redefined_class() && resolved_klass->should_be_initialized()) {
+  if (resolved_klass->is_new_redefined_class() && resolved_klass->should_be_initialized()) {
     ResourceMark rm(THREAD);
     DSU_TRACE(0x00002000, ("Initialize a new redefined class [%s] during runtime_resolve_virtual_method.", resolved_klass->name()->as_C_string()));
     recv_klass->initialize(THREAD);
@@ -1400,19 +1405,19 @@ void LinkResolver::runtime_resolve_interface_method(CallInfo& result, methodHand
 
   if(resolved_klass->is_new_redefined_class() && resolved_klass->should_be_initialized()) {
     ResourceMark rm(THREAD);
-    DSU_TRACE(0x00002000, ("Initialize a new redefined class [%s] during runtime_resolve_virtual_method.", resolved_klass->name()->as_C_string()));
+    DSU_TRACE(0x00002000, ("Initialize a new redefined class [%s] during runtime_resolve_interface_method.", resolved_klass->name()->as_C_string()));
     recv_klass->initialize(THREAD);
     if (HAS_PENDING_EXCEPTION) {
-      DSU_WARN(("Initializing resolved_klass %s at runtime_resolve_virtual_method results in an error.", resolved_klass->name()->as_C_string()));
+      DSU_WARN(("Initializing resolved_klass %s at runtime_resolve_interface_method results in an error.", resolved_klass->name()->as_C_string()));
     }
   }
 
   if(recv_klass->is_new_redefined_class() && recv_klass->should_be_initialized()){
     ResourceMark rm(THREAD);
-    DSU_TRACE(0x00002000, ("Initialize a new redefined class [%s] during runtime_resolve_virtual_method.", recv_klass->name()->as_C_string()));
+    DSU_TRACE(0x00002000, ("Initialize a new redefined class [%s] during runtime_resolve_interface_method.", recv_klass->name()->as_C_string()));
     recv_klass->initialize(THREAD);
     if (HAS_PENDING_EXCEPTION) {
-      DSU_WARN(("Initializing recv_klass %s at runtime_resolve_virtual_method results in an error.", recv_klass->name()->as_C_string()));
+      DSU_WARN(("Initializing recv_klass %s at runtime_resolve_interface_method results in an error.", recv_klass->name()->as_C_string()));
     }
   }
 

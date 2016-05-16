@@ -3649,6 +3649,8 @@ void TypeInstPtr::dump2( Dict &d, uint depth, outputStream *st ) const {
       break;
     }
   case TopPTR:
+  case Valid:
+  case AnyValid:
   case AnyNull:
   case NotNull:
     st->print(":%s", ptr_msg[_ptr]);
