@@ -718,7 +718,7 @@ void ConstantPoolCache::copy_method_entry(ConstantPoolCache* from_cache, int fro
   ConstantPoolCacheEntry * from_entry = from_cache->entry_at(from_index);
   assert(from_entry->is_method_entry(), "old entry must be an method entry");
 
-  const int constant_pool_index = from_entry->constant_pool_index();
+  const int constant_pool_index = to_entry->constant_pool_index();
   memcpy((void*)(from_entry), (void*)(to_entry), sizeof(ConstantPoolCacheEntry));
   to_entry->initialize_entry(constant_pool_index);
   to_entry->reset_entry();

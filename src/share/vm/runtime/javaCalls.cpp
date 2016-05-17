@@ -193,6 +193,9 @@ void JavaCalls::call_default_constructor(JavaThread* thread, methodHandle method
 void JavaCalls::call_virtual(JavaValue* result, KlassHandle spec_klass, Symbol* name, Symbol* signature, JavaCallArguments* args, TRAPS) {
   CallInfo callinfo;
   Handle receiver = args->receiver();
+  if (receiver.not_null() && receiver->is_instance()) {
+    Javelus::transform_object_common(receiver, CHECK);
+  }
   KlassHandle recvrKlass(THREAD, receiver.is_null() ? (Klass*)NULL : receiver->klass());
   LinkResolver::resolve_virtual_call(
           callinfo, receiver, recvrKlass, spec_klass, name, signature,
@@ -372,6 +375,10 @@ void JavaCalls::call_helper(JavaValue* result, methodHandle* m, JavaCallArgument
 
   // Find receiver
   Handle receiver = (!method->is_static()) ? args->receiver() : Handle();
+
+  if (receiver.not_null() && receiver->is_instance()) {
+    Javelus::transform_object_common(receiver, CHECK);
+  }
 
   // When we reenter Java, we need to reenable the yellow zone which
   // might already be disabled when we are in VM.

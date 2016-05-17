@@ -667,6 +667,7 @@ Node* GraphKit::do_stale_object_check(Node* recv, bool check_mixed_object) {
   }
 
   assert(!tip->is_not_stale(), "sanity check");
+  assert(!stopped(),"cannot be stopped!");
 
   kill_dead_locals();
   Node * call = make_runtime_call(RC_NO_LEAF,
@@ -677,6 +678,8 @@ Node* GraphKit::do_stale_object_check(Node* recv, bool check_mixed_object) {
     recv);
 
   make_slow_call_ex(call, env()->Throwable_klass(), true);
+
+  assert(!stopped(),"cannot be stopped!");
 
   Node* result = _gvn.transform(new (C) ProjNode(call, TypeFunc::Parms));
   //cast_valid(recv, t, true);

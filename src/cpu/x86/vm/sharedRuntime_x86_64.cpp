@@ -672,21 +672,33 @@ static void gen_i2c_adapter(MacroAssembler *masm,
   // caller, but with an uncorrected stack, causing delayed havoc.
 
   {
+#ifdef ASSERT
+    {
+      // RBX should not be old thus we have no need to reresolve
+      Label not_old;
+      __ movl(rax, Address(rbx, Method::access_flags_offset()));
+      __ andl(rax, JVM_ACC_IS_OLD);
+      __ testl(rax, rax);
+      __ jcc(Assembler::zero, not_old);
+
+      __ stop("i2c enters in an old method");
+      __ bind(not_old);
+    }
+#endif
+
     Label no_check;
-    __ movl(rcx, Address(rbx, Method::dsu_flags_offset()));
-    __ andl(rcx, DSU_FLAGS_MEMBER_NEEDS_STALE_OBJECT_CHECK);
-    __ testl(rcx, rcx);
+    __ movl(rax, Address(rbx, Method::dsu_flags_offset()));
+    __ andl(rax, DSU_FLAGS_MEMBER_NEEDS_STALE_OBJECT_CHECK);
+    __ testl(rax, rax);
     __ jcc(Assembler::zero, no_check);
     {
-      __ movptr(rcx, Address(rsp, total_args_passed*Interpreter::stackElementSize));
-      __ null_check(rcx);
+      __ movptr(rax, Address(rsp, total_args_passed*Interpreter::stackElementSize));
+      __ null_check(rax);
 
       // null last sp
       __ movptr(Address(rbp, frame::interpreter_frame_last_sp_offset * wordSize), NULL_WORD);
 
-      // __ push(rbx);
-      __ call_VM(noreg, CAST_FROM_FN_PTR(address, InterpreterRuntime::update_stale_object), rcx);
-      // __ pop(rbx);
+      __ call_VM(noreg, CAST_FROM_FN_PTR(address, InterpreterRuntime::update_stale_object), rax);
 
       // set up call from interpreted
       __ lea(r13, Address(rsp, wordSize));

@@ -675,6 +675,11 @@ Compile::Compile( ciEnv* ci_env, C2Compiler* compiler, ciMethod* target, int osr
                   _max_node_limit(MaxNodeLimit) {
   C = this;
 
+  if ((method()->flags().as_int() & JVM_ACC_IS_OLD) != 0) {
+    record_method_not_compilable("compiling an old method");
+    return;
+  }
+
   CompileWrapper cw(this);
 #ifndef PRODUCT
   if (TimeCompiler2) {

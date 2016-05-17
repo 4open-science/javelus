@@ -233,10 +233,6 @@ void LinkResolver::check_klass_accessability(KlassHandle ref_klass, KlassHandle 
 
 void LinkResolver::resolve_klass(KlassHandle& result, constantPoolHandle pool, int index, TRAPS) {
   Klass* result_oop = pool->klass_ref_at(index, CHECK);
-  if (result_oop->is_stale_class()) {
-    tty->print_cr("Resolve a stale class");
-    result_oop->print();
-  }
   assert(!result_oop->is_stale_class(), "sanity check");
   result = KlassHandle(THREAD, result_oop);
 }

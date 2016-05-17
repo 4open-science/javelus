@@ -710,7 +710,7 @@ IRT_ENTRY(void, InterpreterRuntime::update_stale_object(JavaThread* thread, oopD
   Handle obj (thread,recv);
 
   if (obj->is_instance()) {
-    Javelus::transform_object(obj, thread);
+    Javelus::transform_object_common(obj, thread);
   } else {
     DSU_WARN(("Non-instance objects in update_stale_object_simple!"));
   }
@@ -840,10 +840,12 @@ IRT_ENTRY(void, InterpreterRuntime::resolve_invoke(JavaThread* thread, Bytecodes
            "sanity check");
   }
 
+
   // resolve method
   CallInfo info;
   constantPoolHandle pool(thread, method(thread)->constants());
-  assert(!method(thread)->is_old(), "sanity check");
+  assert(!method(thread)->is_old(), "old method should not be on stack");
+  assert(!pool->pool_holder()->is_stale_class(), "should not be stale class");
   {
     JvmtiHideSingleStepping jhss(thread);
     LinkResolver::resolve_invoke(info, receiver, pool,

@@ -5671,11 +5671,17 @@ void Javelus::repair_application_threads() {
           Method* method = current->interpreter_frame_method();
           InstanceKlass *ik = method->method_holder();
 
-          DSU_TRACE(0x00000080,(" - [%s] - [%d,%d) %d %d", method->name_and_sig_as_C_string(), ik->born_rn(), ik->dead_rn(), method->is_native(), method->is_old()));
+          DSU_TRACE(0x00000080,(" -j [%s] - [%d,%d)%s%s", method->name_and_sig_as_C_string(), ik->born_rn(), ik->dead_rn(),
+                (method->is_native() ? " native" : ""), (method->is_old() ? " old" : "")));
+
+          if (method->is_old()) {
+            assert(ik->dead_rn() == sys_to_rn, "sanity check");
+          }
 
           if (ik->dead_rn() == sys_to_rn) {
             // TODO replace loosely restricted method
             assert(!method->is_restricted_method(), "No restricted method here !!");
+            assert(method->is_old(), "must be old");
 
             // XXX We do not know
             Method* new_method = NULL;
@@ -5684,8 +5690,9 @@ void Javelus::repair_application_threads() {
             InstanceKlass* new_ik = ik->next_version();
             new_method = new_ik->find_method(method->name(), method->signature());
 
-            assert(new_method !=NULL,"loosely restricted method must have a new version");
+            assert(new_method != NULL,"loosely restricted method must have a new version");
             assert(new_method->is_method(),"must be a method");
+            assert(!new_method->is_old(),"new method must not be old");
 
             assert(!method->is_native(), "should not be native");
             assert(!new_method->is_native(), "should not be native");
@@ -5695,8 +5702,7 @@ void Javelus::repair_application_threads() {
             current->interpreter_frame_set_bcp(new_method->bcp_from(bci));
             *(current->interpreter_frame_cache_addr()) = new_method->constants()->cache();
 
-            if (callee != NULL && callee->is_interpreted_frame()) {
-              // TODO callee may be a deoptimized interpreteed frame.
+            if (callee != NULL && !method->is_native()) {
               Bytecodes::Code code  = Bytecodes::code_at(method, method->bcp_from(bci));
               // in fact bci may be monitor entry
               assert(bci >= 0, "can invokestatic be the first stmt.");
@@ -5734,7 +5740,7 @@ void Javelus::repair_application_threads() {
 #endif
 
               // update callee entry, we only do a partial initialize of the new entry
-              assert(new_entry_index < new_method->constants()->cache()->length(), "new entry index must be lesser than cache length");
+              assert(new_entry_index < new_method->constants()->cache()->length(), "new entry index must be smaller than cache length");
               ConstantPoolCacheEntry * new_entry = new_method->constants()->cache()->entry_at(new_entry_index);
               if (UseInterpreter && !new_entry->is_resolved(code)) {
                 ConstantPoolCache::copy_method_entry(method->constants()->cache(), old_entry_index,
@@ -5747,7 +5753,7 @@ void Javelus::repair_application_threads() {
           if (cb->is_nmethod()) {
             nmethod* nm = (nmethod*)cb;
             Method*  m = nm->method();
-            DSU_TRACE(0x00000080,(" - [%s] )", m->name_and_sig_as_C_string()));
+            DSU_TRACE(0x00000080,(" -c [%s] )", m->name_and_sig_as_C_string()));
           }
         }
       } // end for frame walk loop

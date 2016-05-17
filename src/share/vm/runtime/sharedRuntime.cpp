@@ -1107,7 +1107,7 @@ Handle SharedRuntime::find_callee_info_helper(JavaThread* thread,
     }
 
     if (receiver->is_instance()) {
-      Javelus::transform_object_common(receiver(), CHECK_(nullHandle));
+      Javelus::transform_object_common(receiver, CHECK_(nullHandle));
     }
   }
 
