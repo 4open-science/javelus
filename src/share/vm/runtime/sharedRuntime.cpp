@@ -1106,15 +1106,8 @@ Handle SharedRuntime::find_callee_info_helper(JavaThread* thread,
       THROW_(vmSymbols::java_lang_NullPointerException(), nullHandle);
     }
 
-    if (receiver->is_instance() && Javelus::transform_object_common(receiver(), THREAD)) {
-      instanceKlassHandle receiver_klass (receiver->klass());
-      if (receiver_klass->is_not_initialized()) {
-        receiver_klass->initialize(THREAD);
-        if (HAS_PENDING_EXCEPTION) {
-          ResourceMark rm(THREAD);
-          DSU_WARN(("Transform ok. Initialize class %s meet exceotion.", receiver_klass->name()->as_C_string()));
-        }
-      }
+    if (receiver->is_instance()) {
+      Javelus::transform_object_common(receiver(), CHECK_(nullHandle));
     }
   }
 

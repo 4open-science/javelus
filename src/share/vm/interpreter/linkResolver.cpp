@@ -1476,6 +1476,9 @@ methodHandle LinkResolver::resolve_virtual_call_or_null(
                                                  bool check_access) {
   EXCEPTION_MARK;
   CallInfo info;
+  if (receiver_klass->is_stale_class() || resolved_klass->is_stale_class()) {
+    return methodHandle();
+  }
   resolve_virtual_call(info, Handle(), receiver_klass, resolved_klass, name, signature, current_klass, check_access, false, THREAD);
   if (HAS_PENDING_EXCEPTION) {
     CLEAR_PENDING_EXCEPTION;
@@ -1493,6 +1496,9 @@ methodHandle LinkResolver::resolve_interface_call_or_null(
                                                  bool check_access) {
   EXCEPTION_MARK;
   CallInfo info;
+  if (receiver_klass->is_stale_class() || resolved_klass->is_stale_class()) {
+    return methodHandle();
+  }
   resolve_interface_call(info, Handle(), receiver_klass, resolved_klass, name, signature, current_klass, check_access, false, THREAD);
   if (HAS_PENDING_EXCEPTION) {
     CLEAR_PENDING_EXCEPTION;
@@ -1509,6 +1515,9 @@ int LinkResolver::resolve_virtual_vtable_index(
                                                KlassHandle current_klass) {
   EXCEPTION_MARK;
   CallInfo info;
+  if (resolved_klass->is_stale_class()) {
+    return Method::invalid_vtable_index;
+  }
   resolve_virtual_call(info, Handle(), receiver_klass, resolved_klass, name, signature, current_klass, true, false, THREAD);
   if (HAS_PENDING_EXCEPTION) {
     CLEAR_PENDING_EXCEPTION;
@@ -1525,6 +1534,9 @@ methodHandle LinkResolver::resolve_static_call_or_null(
                                                   bool check_access) {
   EXCEPTION_MARK;
   CallInfo info;
+  if (resolved_klass->is_stale_class()) {
+    return methodHandle();
+  }
   resolve_static_call(info, resolved_klass, name, signature, current_klass, check_access, false, THREAD);
   if (HAS_PENDING_EXCEPTION) {
     CLEAR_PENDING_EXCEPTION;
@@ -1541,6 +1553,9 @@ methodHandle LinkResolver::resolve_special_call_or_null(
                                                   bool check_access) {
   EXCEPTION_MARK;
   CallInfo info;
+  if (resolved_klass->is_stale_class()) {
+    return methodHandle();
+  }
   resolve_special_call(info, resolved_klass, name, signature, current_klass, check_access, THREAD);
   if (HAS_PENDING_EXCEPTION) {
     CLEAR_PENDING_EXCEPTION;

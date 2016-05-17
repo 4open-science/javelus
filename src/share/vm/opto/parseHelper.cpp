@@ -647,12 +647,10 @@ Node* GraphKit::do_stale_object_check(Node* recv, bool check_mixed_object) {
     return recv;
   }
 
-
   const TypeInstPtr* tip = t->isa_instptr();
 
   //XXX t must be an TypeOopPtr, or TypeInstPtr infact
   if (EliminateCheckPoint && tip->is_not_stale()) {
-    tty->print_cr("Eliminated");
     if (PrintCheckPointElimination) {
       ResourceMark rm;
       DSU_INFO(("Eliminate invalid check for method %s::%s%s at bci %d",

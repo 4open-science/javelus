@@ -1747,7 +1747,8 @@ const TypeTuple *TypeTuple::make_domain(ciInstanceKlass* recv, ciSignature* sig)
     total_fields++;
     field_array = fields(total_fields);
     // Use get_const_type here because it respects UseUniqueSubclasses:
-    if (recv->is_stale_class()) {
+    assert(!recv->is_stale_class(), "sanity check");
+    if (recv->is_new_redefined_class()) {
       field_array[pos++] = get_const_type(recv)->join_speculative(TypePtr::NOTNULL)->isa_instptr()->cast_not_stale();
     } else {
       field_array[pos++] = get_const_type(recv)->join_speculative(TypePtr::NOTNULL);

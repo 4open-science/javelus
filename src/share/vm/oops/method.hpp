@@ -675,6 +675,7 @@ class Method : public Metadata {
   // interpreter support
   static ByteSize const_offset()                 { return byte_offset_of(Method, _constMethod       ); }
   static ByteSize access_flags_offset()          { return byte_offset_of(Method, _access_flags      ); }
+  static ByteSize dsu_flags_offset()             { return byte_offset_of(Method, _dsu_flags      ); }
 #ifdef CC_INTERP
   static ByteSize result_index_offset()          { return byte_offset_of(Method, _result_index ); }
 #endif /* CC_INTERP */

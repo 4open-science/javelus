@@ -32,6 +32,7 @@
 #include "oops/compiledICHolder.hpp"
 #include "prims/jvmtiRedefineClassesTrace.hpp"
 #include "runtime/sharedRuntime.hpp"
+#include "interpreter/interpreterRuntime.hpp"
 #include "runtime/vframeArray.hpp"
 #include "vmreg_x86.inline.hpp"
 #ifdef COMPILER1
@@ -669,6 +670,31 @@ static void gen_i2c_adapter(MacroAssembler *masm,
   // clean up the stack pointer changes performed by the two adapters.
   // If this happens, control eventually transfers back to the compiled
   // caller, but with an uncorrected stack, causing delayed havoc.
+
+  {
+    Label no_check;
+    __ movl(rcx, Address(rbx, Method::dsu_flags_offset()));
+    __ andl(rcx, DSU_FLAGS_MEMBER_NEEDS_STALE_OBJECT_CHECK);
+    __ testl(rcx, rcx);
+    __ jcc(Assembler::zero, no_check);
+    {
+      __ movptr(rcx, Address(rsp, total_args_passed*Interpreter::stackElementSize));
+      __ null_check(rcx);
+
+      // null last sp
+      __ movptr(Address(rbp, frame::interpreter_frame_last_sp_offset * wordSize), NULL_WORD);
+
+      // __ push(rbx);
+      __ call_VM(noreg, CAST_FROM_FN_PTR(address, InterpreterRuntime::update_stale_object), rcx);
+      // __ pop(rbx);
+
+      // set up call from interpreted
+      __ lea(r13, Address(rsp, wordSize));
+      // record last_sp
+      __ movptr(Address(rbp, frame::interpreter_frame_last_sp_offset * wordSize), r13);
+    }
+    __ bind(no_check);
+  }
 
   // Pick up the return address
   __ movptr(rax, Address(rsp, 0));

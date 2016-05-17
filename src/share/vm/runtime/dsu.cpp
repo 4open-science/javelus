@@ -5959,11 +5959,16 @@ bool Javelus::transform_object_common(Handle obj, TRAPS) {
   // Any other threads will be blocked here.
   //Handle lock = (THREAD, Javelus::developer_interface_klass());
   if (DSUEagerUpdate_lock->owner() == thread) {
-    transformed = transform_object_common_no_lock(obj, CHECK_false);
+    transformed = transform_object_common_no_lock(obj, THREAD);
   } else {
     Handle lock (THREAD, stale_klass->java_mirror());
     ObjectLocker locker (lock, THREAD);
-    transformed = transform_object_common_no_lock(obj, CHECK_false);
+    transformed = transform_object_common_no_lock(obj, THREAD);
+  }
+
+  if (HAS_PENDING_EXCEPTION) {
+    DSU_WARN(("transform object results in an exception"));
+    return false;
   }
 
   return transformed;
