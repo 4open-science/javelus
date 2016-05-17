@@ -472,7 +472,7 @@ const TypeFunc *OptoRuntime::update_stale_object_Type() {
 
   // create result type (range)
   fields = TypeTuple::fields(1);
-  fields[TypeFunc::Parms+0] = TypeInstPtr::VALID; // Returned oop
+  fields[TypeFunc::Parms+0] = TypeInstPtr::NOTNULL; // Returned oop
 
   const TypeTuple *range = TypeTuple::make(TypeFunc::Parms+1, fields);
 

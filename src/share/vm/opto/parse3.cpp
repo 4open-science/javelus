@@ -128,12 +128,7 @@ void Parse::do_field_access(bool is_get, bool is_field) {
 
 #ifdef ASSERT
     if (check_stale_object && !check_mixed_object) {
-      const TypeInstPtr *tjp = TypeInstPtr::make(TypePtr::Valid, iter().get_declared_field_holder());
-      if (!_gvn.type(obj)->higher_equal(tjp)) {
-        _gvn.type(obj)->dump();
-        tjp->dump();
-      }
-      assert(_gvn.type(obj)->higher_equal(tjp), "cast_up is no longer needed");
+      assert(_gvn.type(obj)->isa_instptr() && _gvn.type(obj)->isa_instptr()->is_not_stale(), "cast_up is no longer needed");
     } else {
       const TypeInstPtr *tjp = TypeInstPtr::make(TypePtr::NotNull, iter().get_declared_field_holder());
       assert(_gvn.type(obj)->higher_equal(tjp), "cast_up is no longer needed");

@@ -750,9 +750,9 @@ const Type *Conv2BNode::Value( PhaseTransform *phase ) const {
   if( t == TypePtr::NULL_PTR ) return TypeInt::ZERO;
   const TypePtr *tp = t->isa_ptr();
   if( tp != NULL ) {
-    if( tp->ptr() == TypePtr::AnyNull || tp->ptr() == TypePtr::AnyValid ) return Type::TOP;
+    if( tp->ptr() == TypePtr::AnyNull ) return Type::TOP;
     if( tp->ptr() == TypePtr::Constant) return TypeInt::ONE;
-    if (tp->ptr() == TypePtr::NotNull || tp->ptr() == TypePtr::Valid )  return TypeInt::ONE;
+    if (tp->ptr() == TypePtr::NotNull)  return TypeInt::ONE;
     return TypeInt::BOOL;
   }
   if (t->base() != Type::Int) return TypeInt::BOOL;

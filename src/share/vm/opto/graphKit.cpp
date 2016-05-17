@@ -1392,7 +1392,7 @@ Node* GraphKit::cast_valid(Node* obj, const Type* t, bool do_replace_in_map) {
   }
   const TypeInstPtr * tip = t->is_instptr();
   //XXX Not null is invalid
-  const Type *t_valid = t->join(TypePtr::VALID_PTR);
+  const Type *t_valid = tip->cast_not_stale();
   // Object is already valid?
   if(t == t_valid) return obj;
 
@@ -4099,7 +4099,7 @@ Node* GraphKit::load_String_offset(Node* ctrl, Node* str) {
   if (java_lang_String::has_offset_field()) {
     int offset_offset = java_lang_String::offset_offset_in_bytes();
     const TypeInstPtr* string_type = TypeInstPtr::make(TypePtr::NotNull, C->env()->String_klass(),
-                                                       false, NULL, 0);
+                                                       false, NULL, 0, false);
     const TypePtr* offset_field_type = string_type->add_offset(offset_offset);
     int offset_field_idx = C->get_alias_index(offset_field_type);
     return make_load(ctrl,
@@ -4114,7 +4114,7 @@ Node* GraphKit::load_String_length(Node* ctrl, Node* str) {
   if (java_lang_String::has_count_field()) {
     int count_offset = java_lang_String::count_offset_in_bytes();
     const TypeInstPtr* string_type = TypeInstPtr::make(TypePtr::NotNull, C->env()->String_klass(),
-                                                       false, NULL, 0);
+                                                       false, NULL, 0, false);
     const TypePtr* count_field_type = string_type->add_offset(count_offset);
     int count_field_idx = C->get_alias_index(count_field_type);
     return make_load(ctrl,
@@ -4128,7 +4128,7 @@ Node* GraphKit::load_String_length(Node* ctrl, Node* str) {
 Node* GraphKit::load_String_value(Node* ctrl, Node* str) {
   int value_offset = java_lang_String::value_offset_in_bytes();
   const TypeInstPtr* string_type = TypeInstPtr::make(TypePtr::NotNull, C->env()->String_klass(),
-                                                     false, NULL, 0);
+                                                     false, NULL, 0, false);
   const TypePtr* value_field_type = string_type->add_offset(value_offset);
   const TypeAryPtr*  value_type = TypeAryPtr::make(TypePtr::NotNull,
                                                    TypeAry::make(TypeInt::CHAR,TypeInt::POS),
@@ -4146,7 +4146,7 @@ Node* GraphKit::load_String_value(Node* ctrl, Node* str) {
 void GraphKit::store_String_offset(Node* ctrl, Node* str, Node* value) {
   int offset_offset = java_lang_String::offset_offset_in_bytes();
   const TypeInstPtr* string_type = TypeInstPtr::make(TypePtr::NotNull, C->env()->String_klass(),
-                                                     false, NULL, 0);
+                                                     false, NULL, 0, false);
   const TypePtr* offset_field_type = string_type->add_offset(offset_offset);
   int offset_field_idx = C->get_alias_index(offset_field_type);
   store_to_memory(ctrl, basic_plus_adr(str, offset_offset),
@@ -4156,7 +4156,7 @@ void GraphKit::store_String_offset(Node* ctrl, Node* str, Node* value) {
 void GraphKit::store_String_value(Node* ctrl, Node* str, Node* value) {
   int value_offset = java_lang_String::value_offset_in_bytes();
   const TypeInstPtr* string_type = TypeInstPtr::make(TypePtr::NotNull, C->env()->String_klass(),
-                                                     false, NULL, 0);
+                                                     false, NULL, 0, false);
   const TypePtr* value_field_type = string_type->add_offset(value_offset);
 
   store_oop_to_object(ctrl, str,  basic_plus_adr(str, value_offset), value_field_type,
@@ -4166,7 +4166,7 @@ void GraphKit::store_String_value(Node* ctrl, Node* str, Node* value) {
 void GraphKit::store_String_length(Node* ctrl, Node* str, Node* value) {
   int count_offset = java_lang_String::count_offset_in_bytes();
   const TypeInstPtr* string_type = TypeInstPtr::make(TypePtr::NotNull, C->env()->String_klass(),
-                                                     false, NULL, 0);
+                                                     false, NULL, 0, false);
   const TypePtr* count_field_type = string_type->add_offset(count_offset);
   int count_field_idx = C->get_alias_index(count_field_type);
   store_to_memory(ctrl, basic_plus_adr(str, count_offset),

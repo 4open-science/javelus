@@ -647,8 +647,11 @@ Node* GraphKit::do_stale_object_check(Node* recv, bool check_mixed_object) {
     return recv;
   }
 
+
+  const TypeInstPtr* tip = t->isa_instptr();
+
   //XXX t must be an TypeOopPtr, or TypeInstPtr infact
-  if (EliminateCheckPoint && t->higher_equal(TypePtr::VALID_PTR)) {
+  if (EliminateCheckPoint && tip->is_not_stale()) {
     tty->print_cr("Eliminated");
     if (PrintCheckPointElimination) {
       ResourceMark rm;
@@ -665,7 +668,7 @@ Node* GraphKit::do_stale_object_check(Node* recv, bool check_mixed_object) {
     return recv;
   }
 
-  assert(!t->higher_equal(TypePtr::VALID_PTR), "sanity check");
+  assert(!tip->is_not_stale(), "sanity check");
 
   kill_dead_locals();
   Node * call = make_runtime_call(RC_NO_LEAF,

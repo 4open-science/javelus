@@ -759,7 +759,7 @@ class TypeVectY : public TypeVect {
 class TypePtr : public Type {
   friend class TypeNarrowPtr;
 public:
-  enum PTR { TopPTR, AnyNull, AnyValid, Constant, Null, Valid, NotNull, BotPTR, lastPTR };
+  enum PTR { TopPTR, AnyNull, Constant, Null, NotNull, BotPTR, lastPTR };
 protected:
   TypePtr( TYPES t, PTR ptr, int offset ) : Type(t), _ptr(ptr), _offset(offset) {}
   virtual bool eq( const Type *t ) const;
@@ -803,12 +803,11 @@ public:
   }
 
   // Tests for relation to centerline of type lattice:
-  static bool above_centerline(PTR ptr) { return (ptr <= AnyValid); }
-  static bool below_centerline(PTR ptr) { return (ptr >= Valid); }
+  static bool above_centerline(PTR ptr) { return (ptr <= AnyNull); }
+  static bool below_centerline(PTR ptr) { return (ptr >= NotNull); }
   // Convenience common pre-built types.
   static const TypePtr *NULL_PTR;
   static const TypePtr *NOTNULL;
-  static const TypePtr *VALID_PTR;
   static const TypePtr *BOTTOM;
 #ifndef PRODUCT
   virtual void dump2( Dict &d, uint depth, outputStream *st  ) const;
@@ -1005,43 +1004,48 @@ public:
 // Class of Java object pointers, pointing either to non-array Java instances
 // or to a Klass* (including array klasses).
 class TypeInstPtr : public TypeOopPtr {
-  TypeInstPtr(PTR ptr, ciKlass* k, bool xk, ciObject* o, int offset, int instance_id, const TypeOopPtr* speculative, int inline_depth);
+  TypeInstPtr(PTR ptr, ciKlass* k, bool xk, ciObject* o, int offset, int instance_id, const TypeOopPtr* speculative, int inline_depth, bool is_not_stale);
   virtual bool eq( const Type *t ) const;
   virtual int  hash() const;             // Type specific hashing
 
   ciSymbol*  _name;        // class name
 
+  bool       _is_not_stale;
  public:
   ciSymbol* name()         const { return _name; }
 
   bool  is_loaded() const { return _klass->is_loaded(); }
 
+  bool  is_not_stale() const { return _is_not_stale; }
+
+  const TypeInstPtr * cast_not_stale() const;
+
   // Make a pointer to a constant oop.
   static const TypeInstPtr *make(ciObject* o) {
-    return make(TypePtr::Constant, o->klass(), true, o, 0, InstanceBot);
+    return make(TypePtr::Constant, o->klass(), true, o, 0, false, InstanceBot);
   }
   // Make a pointer to a constant oop with offset.
   static const TypeInstPtr *make(ciObject* o, int offset) {
-    return make(TypePtr::Constant, o->klass(), true, o, offset, InstanceBot);
+    return make(TypePtr::Constant, o->klass(), true, o, offset, false, InstanceBot);
   }
 
   // Make a pointer to some value of type klass.
   static const TypeInstPtr *make(PTR ptr, ciKlass* klass) {
-    return make(ptr, klass, false, NULL, 0, InstanceBot);
+    return make(ptr, klass, false, NULL, 0, false, InstanceBot);
   }
 
   // Make a pointer to some non-polymorphic value of exactly type klass.
   static const TypeInstPtr *make_exact(PTR ptr, ciKlass* klass) {
-    return make(ptr, klass, true, NULL, 0, InstanceBot);
+    return make(ptr, klass, true, NULL, 0, false, InstanceBot);
   }
 
   // Make a pointer to some value of type klass with offset.
   static const TypeInstPtr *make(PTR ptr, ciKlass* klass, int offset) {
-    return make(ptr, klass, false, NULL, offset, InstanceBot);
+    return make(ptr, klass, false, NULL, offset, false, InstanceBot);
   }
 
   // Make a pointer to an oop.
-  static const TypeInstPtr *make(PTR ptr, ciKlass* k, bool xk, ciObject* o, int offset, int instance_id = InstanceBot, const TypeOopPtr* speculative = NULL, int inline_depth = InlineDepthBottom);
+  static const TypeInstPtr *make(PTR ptr, ciKlass* k, bool xk, ciObject* o, int offset, bool is_not_stale, int instance_id = InstanceBot, const TypeOopPtr* speculative = NULL, int inline_depth = InlineDepthBottom);
 
   /** Create constant type for a constant boxed value */
   const Type* get_const_boxed_value() const;
@@ -1069,7 +1073,6 @@ class TypeInstPtr : public TypeOopPtr {
 
   // Convenience common pre-built types.
   static const TypeInstPtr *NOTNULL;
-  static const TypeInstPtr *VALID;
   static const TypeInstPtr *BOTTOM;
   static const TypeInstPtr *MIRROR;
   static const TypeInstPtr *MARK;
