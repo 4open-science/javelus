@@ -3969,7 +3969,11 @@ class CommandLineFlags {
   product(bool, IgnoreAddedClass, false, "not define added "                \
            "class eagerly" )                                                \
   product(bool, IgnoreUnloadedAddedClass, true, "ignore new added class "   \
-           "when it cannot been defined eagerly" )
+           "when it cannot been defined eagerly" )                          \
+  product(bool, EagerWakeupDSU, false, "wakeup DSU eagerly")                \
+  product(intx, EagerWakeupDSUSleepTime, 1000, "time for wait DSU")         \
+
+
 
 /*
  *  Macros for factoring of globals

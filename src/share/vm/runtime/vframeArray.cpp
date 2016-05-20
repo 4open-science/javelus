@@ -187,14 +187,14 @@ void vframeArrayElement::unpack_on_stack(int caller_actual_parameters,
   } else if (should_reexecute()) { //reexecute this bytecode
     assert(is_top_frame, "reexecute allowed only for the top frame");
     bcp = method()->bcp_from(bci());
-    if (do_return_barrier) {
+    if (do_return_barrier && is_top_frame) {
       pc  = Interpreter::deopt_reexecute_with_barrier_entry(method(), bcp);
     } else {
       pc  = Interpreter::deopt_reexecute_entry(method(), bcp);
     }
   } else {
     bcp = method()->bcp_from(bci());
-    if (do_return_barrier) {
+    if (do_return_barrier && is_top_frame) {
       pc  = Interpreter::deopt_continue_after_with_barrier_entry(method(), bcp, callee_parameters, is_top_frame);
     } else {
       pc  = Interpreter::deopt_continue_after_entry(method(), bcp, callee_parameters, is_top_frame);

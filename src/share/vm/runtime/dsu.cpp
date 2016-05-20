@@ -1170,7 +1170,13 @@ bool DSUClass::require_stale_new_class(TRAPS) const{
     return false;
   }
 
-  return new_version->matched_fields() != NULL || object_transformer_method() != NULL;
+  DSUClassUpdatingType updating_type = this->updating_type();
+  if (updating_type != DSU_CLASS_FIELD && updating_type != DSU_CLASS_BOTH) {
+    return false;
+  }
+
+  // return new_version->matched_fields() != NULL || object_transformer_method() != NULL;
+  return true;
 }
 
 
@@ -2062,6 +2068,61 @@ void DSUClass::redefine_class(TRAPS) {
   post_fix_new_version            (old_version, new_version, CHECK);
   post_fix_new_inplace_new_class  (old_version, new_version, CHECK);
   post_fix_stale_new_class        (old_version, new_version, CHECK);
+
+
+  {
+    klassVtable* old_vt = old_version->vtable();
+    klassVtable* new_vt = new_version->vtable();
+    assert(old_vt != NULL, "sanity check");
+    assert(new_vt != NULL, "sanity check");
+    int length = old_vt->length() < new_vt->length() ? old_vt->length() : new_vt->length();
+    for (int i = 0; i < length; i++) {
+      Method* old_method = old_vt->method_at(i);
+      Method* new_method = new_vt->method_at(i);
+      assert(old_method != NULL, "sanity check");
+      assert(new_method != NULL, "sanity check");
+      if (new_method->needs_stale_object_check()) {
+        (*old_vt->adr_method_at(i)) = new_method;
+      }
+    }
+  }
+
+  {
+    klassItable* old_it = old_version->itable();
+    klassItable* new_it = new_version->itable();
+    if (old_it != NULL && new_it != NULL) {
+      for (int i = 0; i < old_it->size_offset_table(); i++) {
+        assert(old_it->offset_entry(i) != NULL, "sanity check");
+        Klass* old_itfc = old_it->offset_entry(i)->interface_klass();
+        if (old_itfc == NULL) {
+          break;
+        }
+        for (int j = 0; j < new_it->size_offset_table(); j++) {
+          assert(new_it->offset_entry(j) != NULL, "sanity check");
+          Klass* new_itfc = new_it->offset_entry(j)->interface_klass();
+          if (new_itfc == NULL) {
+            break;
+          }
+          if (old_itfc != new_itfc) {
+            continue;
+          }
+
+          itableMethodEntry* old_ie = old_it->offset_entry(i)->first_method_entry(old_version);
+          itableMethodEntry* new_ie = new_it->offset_entry(j)->first_method_entry(new_version);
+          int count = klassItable::method_count_for_interface(old_itfc);
+          for (int k = 0; k < count; k++, old_ie++, new_ie++) {
+            if (new_ie->method() == NULL) {
+              break;
+            }
+            if (new_ie->method()->needs_stale_object_check()) {
+              old_ie->initialize(new_ie->method());
+            }
+          }
+          break;
+        } // inner for loop
+      } // for loop
+    } // out if
+  }
 }
 
 void DSUClass::install_new_version(InstanceKlass* old_version, InstanceKlass* new_version, TRAPS) {
@@ -2247,6 +2308,21 @@ void DSUClass::post_fix_new_version(InstanceKlass* old_version,
   // XXX
   update_jmethod_ids(new_version, THREAD);
 
+
+  const int old_size_in_words = old_version->size_helper();
+  const int new_size_in_words = new_version->size_helper();
+  const int size_delta_in_words = old_size_in_words - new_size_in_words;
+  if (size_delta_in_words > 0 && size_delta_in_words < (int) CollectedHeap::min_fill_size()) {
+    // TODO make new size larger to avoid zap
+    new_version->set_layout_helper(old_version->layout_helper());
+    new_version->set_copy_to_size(old_version->layout_helper());
+    if (this->stale_new_class() != NULL) {
+      this->stale_new_class()->set_layout_helper(old_version->layout_helper());
+      this->stale_new_class()->set_copy_to_size(old_version->layout_helper());
+    }
+    assert(this->new_inplace_new_class() == NULL, "must not be mixed object");
+    assert(new_version->size_helper() == old_version->size_helper(), "must be equal");
+  }
 }
 
 void DSUClass::post_fix_new_inplace_new_class(InstanceKlass* old_version,
@@ -5242,12 +5318,10 @@ void Javelus::repair_single_thread(JavaThread * thread) {
 
 }
 
-void Javelus::update_single_thread (JavaThread* thread) {
+void Javelus::invoke_return_barrier(JavaThread* thread) {
+  assert(thread == Thread::current(), "sanity check");
   ResourceMark rm(thread);
   intptr_t* return_barrier_id = thread->return_barrier_id();
-
-  //assert(!(return_barrier_id&&NULL||thread->return_barrier_type()),
-  //  "return barrier id should not be null at the same time.");
 
   DSU_TRACE(0x00000100,("Thread %s enters a return barrier. [" PTR_FORMAT ",%d].",
               thread->get_thread_name(),
@@ -5258,6 +5332,16 @@ void Javelus::update_single_thread (JavaThread* thread) {
   if (return_barrier_id == NULL) {
     return ;
   }
+
+#if 0
+  thread->print_stack_on(tty);
+
+  RegisterMap reg_map(thread);
+  vframe* start_vf = thread->last_java_vframe(&reg_map);
+  assert(start_vf->is_java_frame(), "sanity check");
+
+  start_vf->fr().print_on(tty);
+#endif
 
   // First remove the return barrier.
   thread->clear_return_barrier_id();
@@ -5274,17 +5358,17 @@ void Javelus::update_single_thread (JavaThread* thread) {
   // 2.1). we do a retry
   //bool do_eager_update = return_barrier_id == NULL;
   bool do_eager_update = thread->is_return_barrier_eager_update();
+  bool do_eager_wakeup = thread->is_return_barrier_eager_wakeup();
   // 2.2). we do eager udpate
   //bool do_retry = ! (update_this_thread || do_eager_update);
   bool do_retry = thread->is_return_barrier_wake_up();
 
   assert(!(do_retry && do_eager_update), "retry is conflicit with eager update.");
 
-
   // Remember to clear return barrier type here.
-  thread->clear_return_barrier_type();
-
-
+  if (!do_eager_wakeup) {
+    thread->clear_return_barrier_type();
+  }
 
   if (update_this_thread) {
     // it is a valid to_rn
@@ -5309,7 +5393,47 @@ void Javelus::update_single_thread (JavaThread* thread) {
     DSUEagerUpdate::start_eager_update(thread);
     if (thread->has_pending_exception()) {
       DSU_TRACE_MESG(("eager update objects meets exception."));
-      return;
+    }
+  } else if (do_eager_wakeup) {
+    if (Javelus::active_dsu() != NULL) {
+      bool last = true;
+
+      {
+        MutexLocker mu(Threads_lock);
+
+        for (JavaThread *t = Threads::first(); t != NULL; t = t->next()) {
+          if (thread == t) {
+            continue;
+          }
+
+          if (t->is_return_barrier_eager_wakeup()) {
+            DSU_TRACE(0x00000100,("Thread %s may be the last",
+              t->get_thread_name()
+              ));
+            last = false;
+            break;
+          }
+        }
+
+        // clear return barrier
+        thread->clear_return_barrier_type();
+      }
+
+      if (last) {
+        DSU_TRACE(0x00000100,("Thread %s is last " PTR_FORMAT,
+              thread->get_thread_name(),
+              p2i(return_barrier_id)
+              ));
+
+        Javelus::wakeup_DSU_thread();
+        Javelus::waitRequest(EagerWakeupDSUSleepTime);
+      } else { // not last wait the last to wakeup DSU
+        DSU_TRACE(0x00000100,("Thread %s is not last " PTR_FORMAT,
+              thread->get_thread_name(),
+              p2i(return_barrier_id)
+              ));
+        Javelus::waitRequest(EagerWakeupDSUSleepTime);
+      }
     }
   } else if (do_retry) {
     // from rn is equal with system rn
@@ -5321,9 +5445,10 @@ void Javelus::update_single_thread (JavaThread* thread) {
       Javelus::waitRequest();
     }
   } else {
-    thread->print();
     ShouldNotReachHere();
   }
+
+
 
   DSU_TRACE(0x00000100,("Thread %s leaves a return barrier.",
               thread->get_thread_name()
@@ -5353,36 +5478,39 @@ void Javelus::install_return_barrier_all_threads() {
 // the barrier is the id of the rm.
 // We should replace its caller's pc.
 void Javelus::install_return_barrier_single_thread(JavaThread * thread, intptr_t * barrier) {
-  assert(thread->return_barrier_id()==barrier,"just check return barrier id.");
+  assert(thread->return_barrier_id() == barrier,"just check return barrier id.");
 
   for(StackFrameStream fst(thread); !fst.is_done(); fst.next()) {
     frame * current = fst.current();
     if (current->id()== barrier) {
-      // TODO Note here we only support wake_up DSU and eager update RBType
-      thread->set_return_barrier_type(JavaThread::_wakeup_dsu);
+      if (EagerWakeupDSU) {
+        thread->set_return_barrier_type(JavaThread::_eager_wakeup_dsu);
+      } else {
+        thread->set_return_barrier_type(JavaThread::_wakeup_dsu);
+      }
 
+      DSU_TRACE(0x00000100, ("Install return barrier for thread %s at "PTR_FORMAT,
+              thread->get_thread_name(),
+              p2i(barrier)));
       if (current->is_interpreted_frame()) {
         // 1). fetch the Bytecode
-        //
         Bytecodes::Code code = Bytecodes::code_at(current->interpreter_frame_method(),current->interpreter_frame_bcp());
         TosState tos = as_TosState(current->interpreter_frame_method()->result_type());
         address barrier_addr;
         if (code == Bytecodes::_invokedynamic || code == Bytecodes::_invokeinterface) {
-            barrier_addr = Interpreter::return_with_barrier_entry(tos, 5, code);
+          barrier_addr = Interpreter::return_with_barrier_entry(tos, 5, code);
         } else {
           barrier_addr = Interpreter::return_with_barrier_entry(tos, 3, code);
         }
-        current->patch_pc(thread,barrier_addr);
+        current->patch_pc(thread, barrier_addr);
       } else if (current->is_compiled_frame()) {
         // Do nothing.
         // XXX set the address of
         if (current->is_deoptimized_frame()) {
           // We do not depotimize a deoptimized frame.
-          //tty->print_cr("[DSU] return barrier is deoptimized frame");
         } else {
           // We just deoptimize it
-          //tty->print_cr("[DSU] return barrier is compiled frame");
-          Deoptimization::deoptimize(thread,*current,fst.register_map());
+          Deoptimization::deoptimize(thread, *current, fst.register_map());
         }
       }
       return;
@@ -5428,8 +5556,8 @@ bool Javelus::check_application_threads() {
     }
 
 
-    bool do_set_barrier = false;
 
+    bool do_set_barrier = false;
     for(vframeStream vfst(thr); !vfst.at_end(); vfst.next()) {
       Method* method = vfst.method();
       InstanceKlass* ik = method->method_holder();
@@ -5456,6 +5584,7 @@ bool Javelus::check_application_threads() {
             tty->print_cr(" + [%s] - [%d,%d)",method->name_and_sig_as_C_string(),ik->born_rn(),ik->dead_rn());
           }
           thr->set_return_barrier_id(vfst.frame_id());
+          do_set_barrier = false;
         } else {
           if (do_print) {
             tty->print_cr(" - [%s] - [%d,%d) I[%d]",method->name_and_sig_as_C_string(),ik->born_rn(),ik->dead_rn(),vfst.is_interpreted_frame());
@@ -6342,19 +6471,21 @@ void Javelus::dsu_thread_loop() {
 
       VM_DSUOperation * op = task->operation();
       VMThread::execute(op);
-      Javelus::notifyRequest();
 
       if (op->is_finished()) {
         // Request is finished..
         DSU_INFO(("DSU Request is finished"));
+        Javelus::notifyRequest();
         break;
       } else if (op->is_empty()) {
         DSU_WARN(("DSU Request has no updated class"));
+        Javelus::notifyRequest();
         break;
        } else if (op->is_discarded()) {
         // Request is discarded..
         DSU_WARN(("DSU Request is discarded"));
         Javelus::discard_active_dsu();
+        Javelus::notifyRequest();
         break;
       } else if (op->is_system_modified()) {
         // make a retry
@@ -6368,6 +6499,7 @@ void Javelus::dsu_thread_loop() {
       } else {
         DSU_WARN(("Unexpected result for DSU Request."));
         Javelus::discard_active_dsu();
+        Javelus::notifyRequest();
         break;
       }
 
@@ -6389,6 +6521,12 @@ void Javelus::wakeup_DSU_thread() {
 void Javelus::waitRequest() {
   MutexLocker locker(DSURequest_lock);
   DSURequest_lock->wait();
+}
+
+
+void Javelus::waitRequest(long time) {
+  MutexLocker locker(DSURequest_lock);
+  DSURequest_lock->wait(true, time);
 }
 
 void Javelus::notifyRequest() {
@@ -6565,23 +6703,20 @@ void Javelus::copy_fields(oop src, oop dst, oop mix_dst, InstanceKlass* ik) {
 
 void Javelus::realloc_decreased_object(Handle obj, int old_size_in_bytes, int new_size_in_bytes) {
   assert(obj->is_instance(),"we can only update instance objects.");
-  int old_size_in_words = old_size_in_bytes >>LogBytesPerWord;
-  int new_size_in_words = new_size_in_bytes >>LogBytesPerWord;
+  int old_size_in_words = old_size_in_bytes >> LogBytesPerWord;
+  int new_size_in_words = new_size_in_bytes >> LogBytesPerWord;
   int delta = old_size_in_words - new_size_in_words;
 
-  assert(delta>0 && (delta % 2) == 0, "old size must be larger than new size and with 8 alignment.");
+  assert(old_size_in_bytes > new_size_in_bytes, "old size must be larger than new size");
+  assert(((old_size_in_bytes - new_size_in_bytes) % 8) == 0, "delta must be in 8 alignment.");
+  assert(delta >= (int)CollectedHeap::min_fill_size(), "sanity check!");
 
   // old objects address
   HeapWord* hw = (HeapWord*) obj();
   // residual space head
   hw = hw + new_size_in_words;
   // Now hw is pointed to the end of obj.
-  CollectedHeap::fill_with_objects(hw,delta);
-
-#ifdef ASSERT
-  oop o= oop(hw);
-  assert(o->is_oop(),"fill ok");
-#endif
+  CollectedHeap::fill_with_objects(hw, delta);
 }
 
 void Javelus::copy_field(oop src, oop dst, int src_offset, int dst_offset, BasicType type) {

@@ -695,15 +695,15 @@ static void gen_i2c_adapter(MacroAssembler *masm,
       __ movptr(rax, Address(rsp, total_args_passed*Interpreter::stackElementSize));
       __ null_check(rax);
 
-      // null last sp
-      __ movptr(Address(rbp, frame::interpreter_frame_last_sp_offset * wordSize), NULL_WORD);
+      __ load_klass(rax, rax);
+      __ verify_oop(rax);
+      __ movl(rax, Address(rax, Klass::dsu_flags_offset()));
+      __ andl(rax, DSU_FLAGS_CLASS_IS_STALE_CLASS);
 
-      __ call_VM(noreg, CAST_FROM_FN_PTR(address, InterpreterRuntime::update_stale_object), rax);
+      // Here caller can only be interpreted frame.
+      __ jcc(Assembler::zero, no_check);// not a stale class, skip update.
 
-      // set up call from interpreted
-      __ lea(r13, Address(rsp, wordSize));
-      // record last_sp
-      __ movptr(Address(rbp, frame::interpreter_frame_last_sp_offset * wordSize), r13);
+      __ jump(RuntimeAddress(SharedRuntime::get_update_stale_object_and_reresolve_method_stub()));
     }
     __ bind(no_check);
   }

@@ -55,6 +55,7 @@ class SharedRuntime: AllStatic {
 
   // Shared stub locations
 
+  static RuntimeStub*        _update_stale_object_and_reresolve_method_blob;
   static RuntimeStub*        _wrong_method_blob;
   static RuntimeStub*        _wrong_method_abstract_blob;
   static RuntimeStub*        _ic_miss_blob;
@@ -203,6 +204,11 @@ class SharedRuntime: AllStatic {
     return _ic_miss_blob->entry_point();
   }
 
+  static address get_update_stale_object_and_reresolve_method_stub() {
+    assert(_update_stale_object_and_reresolve_method_blob!= NULL, "oops");
+    return _update_stale_object_and_reresolve_method_blob->entry_point();
+  }
+
   static address get_handle_wrong_method_stub() {
     assert(_wrong_method_blob!= NULL, "oops");
     return _wrong_method_blob->entry_point();
@@ -331,6 +337,8 @@ class SharedRuntime: AllStatic {
 
   // Stale object update routine before method entry or in method.
   static void transform_object(JavaThread* thread, oopDesc* recv);
+
+  static address update_stale_object_and_reresolve_method(JavaThread* thread);
 
  private:
   static Handle find_callee_info(JavaThread* thread,

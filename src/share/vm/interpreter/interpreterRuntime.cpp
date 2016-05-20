@@ -692,13 +692,13 @@ IRT_ENTRY(void, InterpreterRuntime::_breakpoint(JavaThread* thread, Method* meth
 IRT_END
 
 IRT_ENTRY(void, InterpreterRuntime::invoke_return_barrier(JavaThread* thread))
-  Javelus::update_single_thread(thread);
+  Javelus::invoke_return_barrier(thread);
 IRT_END
 
 IRT_ENTRY(void, InterpreterRuntime::invoke_return_barrier_with_oop(JavaThread* thread, oopDesc* return_value))
   HandleMark hm(thread);
   Handle ret(thread, return_value);
-  Javelus::update_single_thread(thread);
+  Javelus::invoke_return_barrier(thread);
   thread->set_vm_result(ret());
 IRT_END
 
@@ -723,21 +723,20 @@ IRT_ENTRY(void, InterpreterRuntime::update_stale_object_and_reresolve_method(Jav
   ResourceMark rm(thread);
   Handle receiver(thread, recv);
 
-  instanceKlassHandle ikh (receiver->klass());
-  if (ikh->is_stale_class()) {
-    //transform type before get code
-    // if we update the object, we may be need to update
-    Javelus::transform_object(receiver, thread);
-    ikh = instanceKlassHandle(ikh->next_version());
-    assert(!ikh->is_stale_class(),"cannot be stale after transforming.");
+  {
+    instanceKlassHandle ikh (receiver->klass());
+    if (ikh->is_stale_class()) {
+      //transform type before get code
+      // if we update the object, we may be need to update
+      Javelus::transform_object(receiver, thread);
+      ikh = instanceKlassHandle(ikh->next_version());
+      assert(!ikh->is_stale_class(),"cannot be stale after transforming.");
+    }
   }
 
-  RegisterMap reg_map(thread, false);
-  frame last_frame = thread->last_frame();
   methodHandle m (thread, method(thread));
   Bytecode_invoke call(m, bci(thread));
   Bytecodes::Code bytecode = call.java_code();
-
   // resolve method
   CallInfo info;
   constantPoolHandle pool(thread, method(thread)->constants());
@@ -760,6 +759,7 @@ IRT_ENTRY(void, InterpreterRuntime::update_stale_object_and_reresolve_method(Jav
       }
     }
   } // end JvmtiHideSingleStepping
+
 
   // check if link resolution caused cpCache to be updated
   if (already_resolved(thread)) {

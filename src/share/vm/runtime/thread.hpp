@@ -792,6 +792,7 @@ public:
     _wakeup_dsu        = 1,
     _update_thread     = 2,
     _eager_update      = 3,
+    _eager_wakeup_dsu  = 4,
   };
 
 private:
@@ -1042,6 +1043,7 @@ private:
   void set_return_barrier_type(int type)         { _return_barrier_type = type; }
   void clear_return_barrier_type()               { _return_barrier_type = _no_return_barrier; }
   bool is_return_barrier_wake_up() const         { return _return_barrier_type == _wakeup_dsu; }
+  bool is_return_barrier_eager_wakeup() const    { return _return_barrier_type == _eager_wakeup_dsu; }
   bool is_return_barrier_eager_update() const    { return _return_barrier_type == _eager_update; }
   bool is_return_barrier_update_thread() const   { return _return_barrier_type == _update_thread; }
 

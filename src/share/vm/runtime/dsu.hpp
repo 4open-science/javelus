@@ -1104,6 +1104,7 @@ public:
 
   static void wakeup_DSU_thread();
   static void waitRequest();
+  static void waitRequest(long time);
   static void notifyRequest();
 
 
@@ -1126,7 +1127,7 @@ public:
   static bool check_single_thread(JavaThread * thread);
   static void repair_single_thread(JavaThread * thread);
 
-  static void update_single_thread(JavaThread* thread);
+  static void invoke_return_barrier(JavaThread* thread);
 
   static void check_class_initialized(JavaThread *thread, InstanceKlass* klass);
 

@@ -86,6 +86,7 @@
 PRAGMA_FORMAT_MUTE_WARNINGS_FOR_GCC
 
 // Shared stub locations
+RuntimeStub*        SharedRuntime::_update_stale_object_and_reresolve_method_blob;
 RuntimeStub*        SharedRuntime::_wrong_method_blob;
 RuntimeStub*        SharedRuntime::_wrong_method_abstract_blob;
 RuntimeStub*        SharedRuntime::_ic_miss_blob;
@@ -105,6 +106,7 @@ UncommonTrapBlob*   SharedRuntime::_uncommon_trap_blob;
 
 //----------------------------generate_stubs-----------------------------------
 void SharedRuntime::generate_stubs() {
+  _update_stale_object_and_reresolve_method_blob = generate_resolve_blob(CAST_FROM_FN_PTR(address, SharedRuntime::update_stale_object_and_reresolve_method),          "update_stale_object_and_reresolve_method_stub");
   _wrong_method_blob                   = generate_resolve_blob(CAST_FROM_FN_PTR(address, SharedRuntime::handle_wrong_method),          "wrong_method_stub");
   _wrong_method_abstract_blob          = generate_resolve_blob(CAST_FROM_FN_PTR(address, SharedRuntime::handle_wrong_method_abstract), "wrong_method_abstract_stub");
   _ic_miss_blob                        = generate_resolve_blob(CAST_FROM_FN_PTR(address, SharedRuntime::handle_wrong_method_ic_miss),  "ic_miss_stub");
@@ -1337,6 +1339,19 @@ methodHandle SharedRuntime::resolve_sub_helper(JavaThread *thread,
   return callee_method;
 }
 
+
+JRT_BLOCK_ENTRY(address, SharedRuntime::update_stale_object_and_reresolve_method(JavaThread* thread))
+  // caller may be i2c
+  methodHandle callee_method;
+  JRT_BLOCK
+    callee_method = SharedRuntime::handle_ic_miss_helper(thread, CHECK_NULL);
+    // Return Method* through TLS
+    thread->set_vm_result_2(callee_method());
+  JRT_BLOCK_END
+  // return compiled code entry point after potential safepoints
+  assert(callee_method->verified_code_entry() != NULL, " Jump to zero!");
+  return callee_method->verified_code_entry();
+JRT_END
 
 // Inline caches exist only in compiled code
 JRT_BLOCK_ENTRY(address, SharedRuntime::handle_wrong_method_ic_miss(JavaThread* thread))
