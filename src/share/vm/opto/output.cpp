@@ -243,6 +243,7 @@ void Compile::Insert_zap_nodes() {
           MachCallNode* call = n->as_MachCall();
           if (call->entry_point() == OptoRuntime::new_instance_Java() ||
               call->entry_point() == OptoRuntime::new_array_Java() ||
+              call->entry_point() == OptoRuntime::update_stale_object_Java() ||
               call->entry_point() == OptoRuntime::multianewarray2_Java() ||
               call->entry_point() == OptoRuntime::multianewarray3_Java() ||
               call->entry_point() == OptoRuntime::multianewarray4_Java() ||

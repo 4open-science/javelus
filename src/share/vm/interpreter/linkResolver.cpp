@@ -1645,8 +1645,12 @@ void LinkResolver::resolve_invokeinterface(CallInfo& result, Handle recv, consta
       CLEAR_PENDING_EXCEPTION;
       DSU_WARN(("Transform object fail during resolve invokevirtual."));
     }
+    if (recv->klass()->is_stale_class()) {
+      recvrKlass->print();
+      recv->klass()->print();
+    }
     recvrKlass = KlassHandle(THREAD, recv->klass());
-    assert(!recvrKlass->is_stale_class(),"Could not be invalid after transformation.");
+    assert(!recvrKlass->is_stale_class(), "Could not be invalid after transformation.");
   }
   resolve_interface_call(result, recv, recvrKlass, resolved_klass, method_name, method_signature, current_klass, true, true, CHECK);
 }

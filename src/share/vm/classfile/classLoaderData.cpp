@@ -323,8 +323,11 @@ void ClassLoaderData::unload() {
 
 oop ClassLoaderData::keep_alive_object() const {
   assert(!keep_alive(), "Don't use with CLDs that are artificially kept alive");
-  assert(_klasses == NULL || _klasses->dsu_flags().as_int() == 0, "sanity check");
-  return is_anonymous() ? _klasses->java_mirror() : class_loader();
+  Klass* klass = _klasses;
+  while (klass != NULL && klass->is_stale_class()) {
+    klass = klass->next_link();
+  }
+  return is_anonymous() ? klass->java_mirror() : class_loader();
 }
 
 bool ClassLoaderData::is_alive(BoolObjectClosure* is_alive_closure) const {
