@@ -284,7 +284,15 @@ address TemplateInterpreterGenerator::generate_deopt_with_barrier_entry_for(TosS
     Label L;
     __ cmpptr(Address(r15_thread, JavaThread::return_barrier_id_offset()), (int32_t) NULL_WORD);
     __ jcc(Assembler::zero, L);
-    __ call_VM(noreg, CAST_FROM_FN_PTR(address, InterpreterRuntime::invoke_return_barrier));
+    __ cmpptr(Address(r15_thread, JavaThread::return_barrier_id_offset()), (int32_t) NULL_WORD);
+    __ jcc(Assembler::zero, L);
+    if (state == atos) {
+      __ call_VM(rax, CAST_FROM_FN_PTR(address, InterpreterRuntime::invoke_return_barrier_with_oop), rax);
+    } else {
+      __ push(state);
+      __ call_VM(noreg, CAST_FROM_FN_PTR(address, InterpreterRuntime::invoke_return_barrier));
+      __ pop(state);
+    }
     __ bind(L);
   }
   __ dispatch_next(state, step);

@@ -46,7 +46,7 @@ void ConstantPoolCacheEntry::reset_entry(){
   _indices = (_indices & 0x0000FFFF);
   _f1 = NULL;
   _f2 = 0;
-  _flags &= ~option_bits_mask;
+  _flags &= ~parameter_size_mask;
 }
 
 bool ConstantPoolCacheEntry::adjust_entry_klass(Klass* old_holder, Klass* new_holder) {

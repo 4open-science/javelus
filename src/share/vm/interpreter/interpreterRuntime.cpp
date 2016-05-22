@@ -121,6 +121,7 @@ IRT_ENTRY(void, InterpreterRuntime::ldc(JavaThread* thread, bool wide))
 
   assert (tag.is_unresolved_klass() || tag.is_klass(), "wrong ldc call");
   Klass* klass = pool->klass_at(index, CHECK);
+  assert(!klass->is_stale_class() && !klass->is_new_redefined_class(), "sanity check");
     oop java_class = klass->java_mirror();
     thread->set_vm_result(java_class);
 IRT_END

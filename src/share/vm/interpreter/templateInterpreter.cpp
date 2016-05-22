@@ -341,7 +341,7 @@ void TemplateInterpreterGenerator::generate_all() {
 
   { CodeletMark cm(_masm, "deoptimization with barrier entry points");
     for (int i = 0; i < Interpreter::number_of_deopt_entries; i++) {
-      Interpreter::_deopt_entry[i] =
+      Interpreter::_deopt_with_barrier_entry[i] =
         EntryPoint(
           generate_deopt_with_barrier_entry_for(itos, i),
           generate_deopt_with_barrier_entry_for(itos, i),

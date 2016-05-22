@@ -1621,9 +1621,13 @@ void LinkResolver::resolve_invokevirtual(CallInfo& result, Handle recv,
   KlassHandle recvrKlass (THREAD, recv.is_null() ? (Klass*)NULL : recv->klass());
   if (recvrKlass.not_null() && recvrKlass->is_stale_class()){
     Javelus::transform_object_common(recv, THREAD);
-    if(HAS_PENDING_EXCEPTION){
+    if (HAS_PENDING_EXCEPTION) {
       CLEAR_PENDING_EXCEPTION;
       DSU_WARN(("Transform object fail during resolve invokevirtual."));
+    }
+    if (recv->klass()->is_stale_class()) {
+      recvrKlass->print();
+      recv->klass()->print();
     }
     recvrKlass = KlassHandle(THREAD, recv->klass());
     assert(!recvrKlass->is_stale_class(),"Could not be invalid after transformation.");

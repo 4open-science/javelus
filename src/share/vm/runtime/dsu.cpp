@@ -2579,6 +2579,26 @@ void DSU::check_and_append_relink_class(Klass* k, TRAPS) {
           break;
         }
       }
+
+      if (!should_relink) {
+        ConstantPoolCache* cache = cp->cache();
+
+        if (cache != NULL) {
+          for (int i = 0; i < cache->length(); i++) {
+            ConstantPoolCacheEntry* e = cache->entry_at(i);
+            if (e->is_vfinal()) {
+              Method* m = e->f2_as_vfinal_method();
+              assert(m != NULL, "sanity check");
+              if (m->method_holder()->dsu_will_be_swapped()
+                  && m->method_holder()->dsu_will_be_redefined()) {
+                should_relink = true;
+                assert(false, "shit happens");
+                break;
+              }
+            }
+          }
+        }
+      }
     }
 
     if (should_relink) {
@@ -4197,6 +4217,8 @@ DSUError  DSUClassLoader::load_new_version(Symbol* name, InstanceKlass* &new_cla
   ClassLoaderData* loader_data = new_super->class_loader_data();
   Symbol* new_super_name = new_super->name();
 
+  assert(new_super->is_linked(), "sanity check");
+
   // Check DSUClass again
   DSUClassLoader* super_dsu_class_loader = dsu()->find_class_loader_by_loader(loader_data->class_loader());
   if (super_dsu_class_loader != NULL) {
@@ -4220,6 +4242,8 @@ DSUError  DSUClassLoader::load_new_version(Symbol* name, InstanceKlass* &new_cla
       return DSU_ERROR_TO_BE_ADDED;
     }
   }
+
+  assert(new_super->is_linked(), "sanity check");
 
   new_class = InstanceKlass::cast(k);
 
@@ -5461,7 +5485,6 @@ void Javelus::invoke_return_barrier(JavaThread* thread) {
 void Javelus::install_return_barrier_all_threads() {
   for (JavaThread* thr = Threads::first(); thr != NULL; thr = thr->next()) {
     if (thr->is_Compiler_thread()) {
-
       continue;
     }
     //thread is walkable
@@ -5482,7 +5505,7 @@ void Javelus::install_return_barrier_single_thread(JavaThread * thread, intptr_t
 
   for(StackFrameStream fst(thread); !fst.is_done(); fst.next()) {
     frame * current = fst.current();
-    if (current->id()== barrier) {
+    if (current->id() == barrier) {
       if (EagerWakeupDSU) {
         thread->set_return_barrier_type(JavaThread::_eager_wakeup_dsu);
       } else {
@@ -5493,15 +5516,18 @@ void Javelus::install_return_barrier_single_thread(JavaThread * thread, intptr_t
               thread->get_thread_name(),
               p2i(barrier)));
       if (current->is_interpreted_frame()) {
-        // 1). fetch the Bytecode
-        Bytecodes::Code code = Bytecodes::code_at(current->interpreter_frame_method(),current->interpreter_frame_bcp());
-        TosState tos = as_TosState(current->interpreter_frame_method()->result_type());
-        address barrier_addr;
-        if (code == Bytecodes::_invokedynamic || code == Bytecodes::_invokeinterface) {
-          barrier_addr = Interpreter::return_with_barrier_entry(tos, 5, code);
-        } else {
-          barrier_addr = Interpreter::return_with_barrier_entry(tos, 3, code);
+        Bytecodes::Code code = Bytecodes::code_at(current->interpreter_frame_method(), current->interpreter_frame_bcp());
+        assert(code == Bytecodes::_invokespecial || code == Bytecodes::_invokevirtual || code == Bytecodes::_invokedynamic || code == Bytecodes::_invokeinterface, "sanity check");
+        const int length = Bytecodes::length_at(current->interpreter_frame_method(), current->interpreter_frame_bcp());
+        Bytecode_invoke bi(methodHandle(current->interpreter_frame_method()), current->interpreter_frame_bci());
+        TosState tos = as_TosState(bi.result_type());
+        address barrier_addr, return_addr;
+        barrier_addr = Interpreter::return_with_barrier_entry(tos, length, code);
+        return_addr = Interpreter::return_entry(tos, length, code);
+        if (!(current->pc() == return_addr || current->pc() == barrier_addr)) {
+          current->print_on(tty);
         }
+        assert(current->pc() == return_addr || current->pc() == barrier_addr, "must be return or pre-set return with barrier");
         current->patch_pc(thread, barrier_addr);
       } else if (current->is_compiled_frame()) {
         // Do nothing.
@@ -5555,8 +5581,6 @@ bool Javelus::check_application_threads() {
       tty->print_cr("[DSU] Check thread %s.",thr->get_thread_name());
     }
 
-
-
     bool do_set_barrier = false;
     for(vframeStream vfst(thr); !vfst.at_end(); vfst.next()) {
       Method* method = vfst.method();
@@ -5575,25 +5599,25 @@ bool Javelus::check_application_threads() {
           // Here we install return barrier
           // TODO Here we just set the id and will install it at repair_thread
           if (do_print) {
-            tty->print_cr(" * [%s] - [%d,%d)",method->name_and_sig_as_C_string(),ik->born_rn(),ik->dead_rn());
+            tty->print_cr(" * [%s] - [%d,%d) id=" PTR_FORMAT, method->name_and_sig_as_C_string(), ik->born_rn(), ik->dead_rn(), p2i(vfst.frame_id()));
           }
           do_set_barrier = true;
         } else if (do_set_barrier) {
           // Return barrier can only be put after the caller of the oldest restricted method.
           if (do_print) {
-            tty->print_cr(" + [%s] - [%d,%d)",method->name_and_sig_as_C_string(),ik->born_rn(),ik->dead_rn());
+            tty->print_cr(" + [%s] - [%d,%d) id="PTR_FORMAT, method->name_and_sig_as_C_string(),ik->born_rn(),ik->dead_rn(), p2i(vfst.frame_id()));
           }
           thr->set_return_barrier_id(vfst.frame_id());
           do_set_barrier = false;
         } else {
           if (do_print) {
-            tty->print_cr(" - [%s] - [%d,%d) I[%d]",method->name_and_sig_as_C_string(),ik->born_rn(),ik->dead_rn(),vfst.is_interpreted_frame());
+            tty->print_cr(" - [%s] - [%d,%d) I[%d] id="PTR_FORMAT, method->name_and_sig_as_C_string(),ik->born_rn(),ik->dead_rn(),vfst.is_interpreted_frame(), p2i(vfst.frame_id()));
           }
         }
       } else if (t_from_rn < sys_from_rn) {
         //assert(thr->return_barrier_id() != NULL, "If it is old and it must have return barrier");
         if (do_print) {
-          tty->print_cr(" # [%s] - [%d,%d) I[%d]",method->name_and_sig_as_C_string(),ik->born_rn(),ik->dead_rn(),vfst.is_interpreted_frame());
+          tty->print_cr(" # [%s] - [%d,%d) I[%d] id="PTR_FORMAT,method->name_and_sig_as_C_string(),ik->born_rn(),ik->dead_rn(),vfst.is_interpreted_frame(), p2i(vfst.frame_id()));
         }
         thread_safe = false;
         break;
@@ -6101,6 +6125,8 @@ bool Javelus::transform_object_common(Handle obj, TRAPS) {
     transformed = transform_object_common_no_lock(obj, THREAD);
   }
 
+  assert(!transformed || !obj->klass()->is_stale_class(), "sanity check");
+
   if (HAS_PENDING_EXCEPTION) {
     DSU_WARN(("transform object results in an exception"));
     return false;
@@ -6323,6 +6349,7 @@ void Javelus::run_transformer(Handle inplace_object, Handle old_phantom_object, 
   assert(new_phantom_object.not_null(), "sanity check");
   assert(old_phantom_klass != NULL, "sanity check!");
   assert(new_inplace_klass != NULL, "sanity check!");
+  assert(!new_inplace_klass->is_stale_class(), "sanity check!");
   assert(new_phantom_klass != NULL, "next instanceKlass must not be null");
 
   Method* object_transformer = new_phantom_klass->object_transformer();
@@ -6336,7 +6363,7 @@ void Javelus::run_transformer(Handle inplace_object, Handle old_phantom_object, 
   }
 
   run_default_transformer(inplace_object, inplace_object, new_phantom_object, old_phantom_klass, new_phantom_klass, CHECK);
-  run_custom_transformer(inplace_object, old_phantom_klass, object_transformer, args, THREAD);
+  run_custom_transformer(inplace_object, old_phantom_klass, object_transformer, args, CHECK);
 
   inplace_object->set_klass(new_inplace_klass);
 }
