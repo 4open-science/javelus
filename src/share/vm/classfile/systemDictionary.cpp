@@ -797,10 +797,13 @@ Klass* SystemDictionary::resolve_instance_class_or_null(Symbol* name,
     }
 
     if (!class_has_been_loaded) {
-
-      // Do actual loading
-      k = load_instance_class(name, class_loader, THREAD);
-
+      bool redefined_but_not_loaded = loader_data->contains_redefined(name);
+      if (redefined_but_not_loaded) {
+        k = loader_data->load_redefined_instance_class(name, class_loader, THREAD);
+      } else {
+        // Do actual loading
+        k = load_instance_class(name, class_loader, THREAD);
+      }
       // For UnsyncloadClass only
       // If they got a linkageError, check if a parallel class load succeeded.
       // If it did, then for bytecode resolution the specification requires

@@ -144,4 +144,13 @@ inline DSUFlags dsuFlags_from(jint flags) {
   return df;
 }
 
+class DSUStreamProvider: public CHeapObj<mtInternal> {
+public:
+  DSUStreamProvider();
+  ~DSUStreamProvider();
+  virtual ClassFileStream* open_stream(const char * name, TRAPS) { return NULL; };
+  virtual void print();
+  virtual bool is_shared() { return false; }
+};
+
 #endif

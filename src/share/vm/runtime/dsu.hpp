@@ -478,6 +478,10 @@ public:
     InstanceKlass* new_version,
     TRAPS);
 
+  void post_fix_vtable_and_itable(InstanceKlass* old_version,
+    InstanceKlass* new_version,
+    TRAPS);
+
   void install_new_version(InstanceKlass* old_version,
     InstanceKlass* new_version,
     TRAPS);
@@ -797,6 +801,7 @@ public:
 
   void classes_do(void f(DSUClass * dsu_class,TRAPS), TRAPS);
 
+  void set_up_new_classpath(TRAPS);
 private:
   static GrowableArray<DSUClass>*  _classes_to_relink;
 public:
@@ -875,15 +880,6 @@ public:
 };
 
 // --------------------- DSUStreamProvider -------------------
-
-class DSUStreamProvider: public CHeapObj<mtInternal> {
-public:
-  DSUStreamProvider();
-  ~DSUStreamProvider();
-  virtual ClassFileStream* open_stream(const char * name, TRAPS) { return NULL; };
-  virtual void print();
-  virtual bool is_shared() { return false; }
-};
 
 class DSUPathEntryStreamProvider: public DSUStreamProvider {
 private:

@@ -253,6 +253,9 @@ DSUError DSU::update(TRAPS) {
   // Disable any dependent concurrent compilations
   SystemDictionary::notice_modification();
 
+  // Set up new class path
+  set_up_new_classpath(THREAD);
+
   // Record DSU Request pausing time without collect objects.
   DSU_TIMER_STOP(dsu_timer);
   DSU_INFO(("DSU request pause time: %3.7f (s).",dsu_timer.seconds()));
@@ -264,6 +267,28 @@ DSUError DSU::update(TRAPS) {
 
   set_request_state(DSU_REQUEST_FINISHED);
   return DSU_ERROR_NONE;
+}
+
+void DSU::set_up_new_classpath(TRAPS) {
+  ResourceMark rm(THREAD);
+  bool has_not_loaded_new_version = false;
+  for (DSUClassLoader* dsu_loader = first_class_loader(); dsu_loader != NULL; dsu_loader = dsu_loader->next()) {
+    ClassLoaderData* loader_data = dsu_loader->class_loader_data();
+    assert(loader_data != NULL, "sanity check");
+    for (DSUClass *dsu_class = dsu_loader->first_class(); dsu_class != NULL; dsu_class = dsu_class->next()) {
+      if (dsu_class->require_new_version() && dsu_class->new_version_class() == NULL) {
+        has_not_loaded_new_version = true;
+        DSU_WARN(("Add a not loaded new class %s", dsu_class->name()->as_C_string()));
+        loader_data->add_to_redefined_list(dsu_class->name());
+        loader_data->set_stream_provider(dsu_loader->stream_provider());
+      }
+    }
+  }
+
+  if (has_not_loaded_new_version) {
+    // prevent DSU from deallocated it
+    set_shared_stream_provider(NULL);
+  }
 }
 
 // TODO we need to do explicit sanity check.
@@ -2068,61 +2093,7 @@ void DSUClass::redefine_class(TRAPS) {
   post_fix_new_version            (old_version, new_version, CHECK);
   post_fix_new_inplace_new_class  (old_version, new_version, CHECK);
   post_fix_stale_new_class        (old_version, new_version, CHECK);
-
-
-  {
-    klassVtable* old_vt = old_version->vtable();
-    klassVtable* new_vt = new_version->vtable();
-    assert(old_vt != NULL, "sanity check");
-    assert(new_vt != NULL, "sanity check");
-    int length = old_vt->length() < new_vt->length() ? old_vt->length() : new_vt->length();
-    for (int i = 0; i < length; i++) {
-      Method* old_method = old_vt->method_at(i);
-      Method* new_method = new_vt->method_at(i);
-      assert(old_method != NULL, "sanity check");
-      assert(new_method != NULL, "sanity check");
-      if (new_method->needs_stale_object_check()) {
-        (*old_vt->adr_method_at(i)) = new_method;
-      }
-    }
-  }
-
-  {
-    klassItable* old_it = old_version->itable();
-    klassItable* new_it = new_version->itable();
-    if (old_it != NULL && new_it != NULL) {
-      for (int i = 0; i < old_it->size_offset_table(); i++) {
-        assert(old_it->offset_entry(i) != NULL, "sanity check");
-        Klass* old_itfc = old_it->offset_entry(i)->interface_klass();
-        if (old_itfc == NULL) {
-          break;
-        }
-        for (int j = 0; j < new_it->size_offset_table(); j++) {
-          assert(new_it->offset_entry(j) != NULL, "sanity check");
-          Klass* new_itfc = new_it->offset_entry(j)->interface_klass();
-          if (new_itfc == NULL) {
-            break;
-          }
-          if (old_itfc != new_itfc) {
-            continue;
-          }
-
-          itableMethodEntry* old_ie = old_it->offset_entry(i)->first_method_entry(old_version);
-          itableMethodEntry* new_ie = new_it->offset_entry(j)->first_method_entry(new_version);
-          int count = klassItable::method_count_for_interface(old_itfc);
-          for (int k = 0; k < count; k++, old_ie++, new_ie++) {
-            if (new_ie->method() == NULL) {
-              break;
-            }
-            if (new_ie->method()->needs_stale_object_check()) {
-              old_ie->initialize(new_ie->method());
-            }
-          }
-          break;
-        } // inner for loop
-      } // for loop
-    } // out if
-  }
+  post_fix_vtable_and_itable      (old_version, new_version, CHECK);
 }
 
 void DSUClass::install_new_version(InstanceKlass* old_version, InstanceKlass* new_version, TRAPS) {
@@ -2415,6 +2386,65 @@ void DSUClass::post_fix_stale_new_class(InstanceKlass* old_version,
   stale_new_class->set_super(NULL);
   stale_new_class->set_secondary_supers(NULL);
   stale_new_class->initialize_supers(new_version, CHECK);
+}
+
+void DSUClass::post_fix_vtable_and_itable(InstanceKlass* old_version,
+    InstanceKlass* new_version,
+    TRAPS) {
+  {
+    klassVtable* old_vt = old_version->vtable();
+    klassVtable* new_vt = new_version->vtable();
+    assert(old_vt != NULL, "sanity check");
+    assert(new_vt != NULL, "sanity check");
+    int length = old_vt->length() < new_vt->length() ? old_vt->length() : new_vt->length();
+    for (int i = 0; i < length; i++) {
+      Method* old_method = old_vt->method_at(i);
+      Method* new_method = new_vt->method_at(i);
+      assert(old_method != NULL, "sanity check");
+      assert(new_method != NULL, "sanity check");
+      if (new_method->needs_stale_object_check()) {
+        (*old_vt->adr_method_at(i)) = new_method;
+      }
+    }
+  }
+
+  {
+    klassItable* old_it = old_version->itable();
+    klassItable* new_it = new_version->itable();
+    if (old_it != NULL && new_it != NULL) {
+      for (int i = 0; i < old_it->size_offset_table(); i++) {
+        assert(old_it->offset_entry(i) != NULL, "sanity check");
+        Klass* old_itfc = old_it->offset_entry(i)->interface_klass();
+        if (old_itfc == NULL) {
+          break;
+        }
+        for (int j = 0; j < new_it->size_offset_table(); j++) {
+          assert(new_it->offset_entry(j) != NULL, "sanity check");
+          Klass* new_itfc = new_it->offset_entry(j)->interface_klass();
+          if (new_itfc == NULL) {
+            break;
+          }
+          if (old_itfc != new_itfc) {
+            continue;
+          }
+
+          itableMethodEntry* old_ie = old_it->offset_entry(i)->first_method_entry(old_version);
+          itableMethodEntry* new_ie = new_it->offset_entry(j)->first_method_entry(new_version);
+          int count = klassItable::method_count_for_interface(old_itfc);
+          for (int k = 0; k < count; k++, old_ie++, new_ie++) {
+            if (new_ie->method() == NULL) {
+              break;
+            }
+            if (new_ie->method()->needs_stale_object_check()) {
+              old_ie->initialize(new_ie->method());
+            }
+          }
+          break;
+        } // inner for loop
+      } // for loop
+    } // out if
+  }
+
 }
 
 void DSUClass::define_class(TRAPS) {
@@ -4825,8 +4855,9 @@ void Javelus::finish_active_dsu() {
 }
 
 void Javelus::discard_active_dsu() {
-  if (_active_dsu != NULL) {
-    delete _active_dsu;
+  DSU* dsu = _active_dsu;
+  if (dsu != NULL) {
+    delete dsu;
     _active_dsu = NULL;
   }
 }
@@ -4836,7 +4867,7 @@ DSU* Javelus::get_DSU(int from_rn) {
     return NULL;
   }
 
-  for(DSU* dsu = _first_dsu; dsu!=NULL; dsu=dsu->next()) {
+  for(DSU* dsu = _first_dsu; dsu != NULL; dsu = dsu->next()) {
     if (dsu->from_rn() == from_rn) {
       return dsu;
     }

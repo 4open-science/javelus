@@ -30,6 +30,7 @@
 #include "memory/metaspace.hpp"
 #include "memory/metaspaceCounters.hpp"
 #include "runtime/mutex.hpp"
+#include "runtime/dsuFlags.hpp"
 #include "utilities/growableArray.hpp"
 #include "utilities/macros.hpp"
 #if INCLUDE_TRACE
@@ -183,6 +184,10 @@ class ClassLoaderData : public CHeapObj<mtClass> {
   // Support for walking class loader data objects
   ClassLoaderData* _next; /// Next loader_datas created
 
+  // DSU support
+  GrowableArray<Symbol*>*      _redefined_class_list;
+  DSUStreamProvider*           _stream_provider;
+
   // ReadOnly and ReadWrite metaspaces (static because only on the null
   // class loader for now).
   static Metaspace* _ro_metaspace;
@@ -293,6 +298,12 @@ class ClassLoaderData : public CHeapObj<mtClass> {
   void init_dependencies(TRAPS);
 
   void add_to_deallocate_list(Metadata* m);
+
+  void add_to_redefined_list(Symbol* class_name);
+
+  void set_stream_provider(DSUStreamProvider* stream_provider) { _stream_provider = stream_provider; }
+  bool contains_redefined(Symbol* class_name);
+  Klass* load_redefined_instance_class(Symbol* class_name, Handle loader_class, TRAPS);
 
   static ClassLoaderData* class_loader_data(oop loader);
   static ClassLoaderData* class_loader_data_or_null(oop loader);

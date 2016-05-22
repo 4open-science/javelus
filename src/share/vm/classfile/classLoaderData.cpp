@@ -79,7 +79,7 @@ ClassLoaderData::ClassLoaderData(Handle h_class_loader, bool is_anonymous, Depen
   _keep_alive(is_anonymous || h_class_loader.is_null()),
   _metaspace(NULL), _unloading(false), _klasses(NULL),
   _claimed(0), _jmethod_ids(NULL), _handles(NULL), _deallocate_list(NULL),
-  _next(NULL), _dependencies(dependencies),
+  _redefined_class_list(NULL), _stream_provider(NULL), _next(NULL), _dependencies(dependencies),
   _metaspace_lock(new Mutex(Monitor::leaf+1, "Metaspace allocation lock", true)) {
     // empty
 }
@@ -370,6 +370,10 @@ ClassLoaderData::~ClassLoaderData() {
   if (_deallocate_list != NULL) {
     delete _deallocate_list;
   }
+
+  if (_redefined_class_list != NULL) {
+    delete _redefined_class_list;
+  }
 }
 
 /**
@@ -433,6 +437,53 @@ void ClassLoaderData::add_to_deallocate_list(Metadata* m) {
     }
     _deallocate_list->append_if_missing(m);
   }
+}
+
+void ClassLoaderData::add_to_redefined_list(Symbol* class_name) {
+  if (_redefined_class_list == NULL) {
+    _redefined_class_list = new (ResourceObj::C_HEAP, mtClass) GrowableArray<Symbol*>(100, true);
+  }
+  _redefined_class_list->append_if_missing(class_name);
+}
+
+bool ClassLoaderData::contains_redefined(Symbol* class_name) {
+  if (_redefined_class_list == NULL) {
+    return false;
+  }
+  return _redefined_class_list->contains(class_name);
+}
+
+Klass* ClassLoaderData::load_redefined_instance_class(Symbol* class_name, Handle class_loader, TRAPS) {
+  HandleMark hm(THREAD);
+  ResourceMark rm(THREAD);
+
+  assert(contains_redefined(class_name), "sanity check");
+  assert(_stream_provider != NULL, "sanity check");
+
+  Handle protection_domain;
+
+  stringStream st;
+  // st.print() uses too much stack space while handling a StackOverflowError
+  // st.print("%s.class", h_name->as_utf8());
+  st.print_raw(class_name->as_utf8());
+  st.print_raw(".class");
+  const char* file_name = st.as_string();
+
+  ClassFileStream* stream = _stream_provider->open_stream(file_name, CHECK_NULL);
+
+  if (stream == NULL) {
+    tty->print_cr("Cannot load new class %s", class_name->as_C_string());
+    fatal("Cannot load a redefined new class");
+    return NULL;
+  }
+
+  Klass* k = SystemDictionary::parse_stream(class_name,
+    class_loader,
+    protection_domain,
+    stream,
+    CHECK_NULL);
+
+  return k;
 }
 
 // Deallocate free metadata on the free list.  How useful the PermGen was!
@@ -537,7 +588,6 @@ bool ClassLoaderData::contains_klass(Klass* klass) {
   }
   return false;
 }
-
 
 // GC root of class loader data created.
 ClassLoaderData* ClassLoaderDataGraph::_head = NULL;

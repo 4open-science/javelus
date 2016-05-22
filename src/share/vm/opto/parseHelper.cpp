@@ -669,6 +669,15 @@ Node* GraphKit::do_stale_object_check(Node* recv, bool check_mixed_object) {
   assert(!tip->is_not_stale(), "sanity check");
   assert(!stopped(),"cannot be stopped!");
 
+  if (PrintCheckPoint) {
+    ResourceMark rm;
+    DSU_INFO(("Invalid check for method %s::%s%s at bci %d",
+      method()->holder()->name()->as_utf8(),
+      method()->name()->as_utf8(),
+      method()->signature()->as_symbol()->as_utf8(),
+      bci()));
+  }
+
   kill_dead_locals();
   Node * call = make_runtime_call(RC_NO_LEAF,
     OptoRuntime::update_stale_object_Type(),
@@ -692,15 +701,6 @@ Node* GraphKit::do_stale_object_check(Node* recv, bool check_mixed_object) {
   return recv;
 
 #if 0
-  if (PrintCheckPoint) {
-    ResourceMark rm;
-    DSU_INFO(("Invalid check for method %s::%s%s at bci %d",
-      method()->holder()->name()->as_utf8(),
-      method()->name()->as_utf8(),
-      method()->signature()->as_symbol()->as_utf8(),
-      bci()));
-  }
-
   RegionNode* result_rgn = new(C) RegionNode(3);
   PhiNode*    result_val = new(C) PhiNode(result_rgn, t->join(TypePtr::VALID_PTR));
   PhiNode*    result_io  = new(C) PhiNode(result_rgn, Type::ABIO);
@@ -772,6 +772,15 @@ Node* GraphKit::do_stale_object_check(Node* recv, bool check_mixed_object) {
 }
 
 Node* GraphKit::do_mixed_object_check(Node* obj) {
+  if (PrintCheckPoint) {
+    ResourceMark rm;
+    DSU_INFO(("Mixed object check for method %s::%s%s at bci %d",
+      method()->holder()->name()->as_utf8(),
+      method()->name()->as_utf8(),
+      method()->signature()->as_symbol()->as_utf8(),
+      bci()));
+  }
+
   enum {
     mixed_object_path = 1,
     not_mixed_object_path = 2,
