@@ -1928,6 +1928,7 @@ void java_lang_reflect_Method::compute_offsets() {
   compute_offset(parameterTypes_offset, k, vmSymbols::parameterTypes_name(), vmSymbols::class_array_signature());
   compute_offset(exceptionTypes_offset, k, vmSymbols::exceptionTypes_name(), vmSymbols::class_array_signature());
   compute_offset(slot_offset,           k, vmSymbols::slot_name(),           vmSymbols::int_signature());
+  compute_offset(root_offset,           k, vmSymbols::root_name(),           vmSymbols::method_signature());
   compute_offset(modifiers_offset,      k, vmSymbols::modifiers_name(),      vmSymbols::int_signature());
   // The generic signature and annotations fields are only present in 1.5
   signature_offset = -1;
@@ -1969,6 +1970,16 @@ int java_lang_reflect_Method::slot(oop reflect) {
 void java_lang_reflect_Method::set_slot(oop reflect, int value) {
   assert(Universe::is_fully_initialized(), "Need to find another solution to the reflection problem");
   reflect->int_field_put(slot_offset, value);
+}
+
+oop java_lang_reflect_Method::root(oop reflect) {
+  assert(Universe::is_fully_initialized(), "Need to find another solution to the reflection problem");
+  return reflect->obj_field(root_offset);
+}
+
+void java_lang_reflect_Method::set_root(oop reflect, oop value) {
+  assert(Universe::is_fully_initialized(), "Need to find another solution to the reflection problem");
+  reflect->obj_field_put(root_offset, value);
 }
 
 oop java_lang_reflect_Method::name(oop method) {
@@ -2107,6 +2118,7 @@ void java_lang_reflect_Constructor::compute_offsets() {
   compute_offset(parameterTypes_offset, k, vmSymbols::parameterTypes_name(), vmSymbols::class_array_signature());
   compute_offset(exceptionTypes_offset, k, vmSymbols::exceptionTypes_name(), vmSymbols::class_array_signature());
   compute_offset(slot_offset,           k, vmSymbols::slot_name(),           vmSymbols::int_signature());
+  compute_offset(root_offset,           k, vmSymbols::root_name(),           vmSymbols::constructor_signature());
   compute_offset(modifiers_offset,      k, vmSymbols::modifiers_name(),      vmSymbols::int_signature());
   // The generic signature and annotations fields are only present in 1.5
   signature_offset = -1;
@@ -2167,6 +2179,16 @@ int java_lang_reflect_Constructor::slot(oop reflect) {
 void java_lang_reflect_Constructor::set_slot(oop reflect, int value) {
   assert(Universe::is_fully_initialized(), "Need to find another solution to the reflection problem");
   reflect->int_field_put(slot_offset, value);
+}
+
+oop java_lang_reflect_Constructor::root(oop reflect) {
+  assert(Universe::is_fully_initialized(), "Need to find another solution to the reflection problem");
+  return reflect->obj_field(root_offset);
+}
+
+void java_lang_reflect_Constructor::set_root(oop reflect, oop value) {
+  assert(Universe::is_fully_initialized(), "Need to find another solution to the reflection problem");
+  reflect->obj_field_put(root_offset, value);
 }
 
 int java_lang_reflect_Constructor::modifiers(oop constructor) {
@@ -2249,6 +2271,7 @@ void java_lang_reflect_Field::compute_offsets() {
   compute_offset(name_offset,      k, vmSymbols::name_name(),      vmSymbols::string_signature());
   compute_offset(type_offset,      k, vmSymbols::type_name(),      vmSymbols::class_signature());
   compute_offset(slot_offset,      k, vmSymbols::slot_name(),      vmSymbols::int_signature());
+  compute_offset(root_offset,      k, vmSymbols::root_name(),      vmSymbols::field_signature());
   compute_offset(modifiers_offset, k, vmSymbols::modifiers_name(), vmSymbols::int_signature());
   // The generic signature and annotations fields are only present in 1.5
   signature_offset = -1;
@@ -2307,6 +2330,16 @@ int java_lang_reflect_Field::slot(oop reflect) {
 void java_lang_reflect_Field::set_slot(oop reflect, int value) {
   assert(Universe::is_fully_initialized(), "Need to find another solution to the reflection problem");
   reflect->int_field_put(slot_offset, value);
+}
+
+oop java_lang_reflect_Field::root(oop reflect) {
+  assert(Universe::is_fully_initialized(), "Need to find another solution to the reflection problem");
+  return reflect->obj_field(root_offset);
+}
+
+void java_lang_reflect_Field::set_root(oop reflect, oop value) {
+  assert(Universe::is_fully_initialized(), "Need to find another solution to the reflection problem");
+  reflect->obj_field_put(root_offset, value);
 }
 
 int java_lang_reflect_Field::modifiers(oop field) {
@@ -3139,6 +3172,7 @@ int java_lang_reflect_Method::returnType_offset;
 int java_lang_reflect_Method::parameterTypes_offset;
 int java_lang_reflect_Method::exceptionTypes_offset;
 int java_lang_reflect_Method::slot_offset;
+int java_lang_reflect_Method::root_offset;
 int java_lang_reflect_Method::modifiers_offset;
 int java_lang_reflect_Method::signature_offset;
 int java_lang_reflect_Method::annotations_offset;
@@ -3149,6 +3183,7 @@ int java_lang_reflect_Constructor::clazz_offset;
 int java_lang_reflect_Constructor::parameterTypes_offset;
 int java_lang_reflect_Constructor::exceptionTypes_offset;
 int java_lang_reflect_Constructor::slot_offset;
+int java_lang_reflect_Constructor::root_offset;
 int java_lang_reflect_Constructor::modifiers_offset;
 int java_lang_reflect_Constructor::signature_offset;
 int java_lang_reflect_Constructor::annotations_offset;
@@ -3158,6 +3193,7 @@ int java_lang_reflect_Field::clazz_offset;
 int java_lang_reflect_Field::name_offset;
 int java_lang_reflect_Field::type_offset;
 int java_lang_reflect_Field::slot_offset;
+int java_lang_reflect_Field::root_offset;
 int java_lang_reflect_Field::modifiers_offset;
 int java_lang_reflect_Field::signature_offset;
 int java_lang_reflect_Field::annotations_offset;

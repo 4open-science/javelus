@@ -580,6 +580,8 @@ class java_lang_reflect_Method : public java_lang_reflect_AccessibleObject {
   static int annotation_default_offset;
   static int type_annotations_offset;
 
+  static int root_offset;
+
   static void compute_offsets();
 
  public:
@@ -607,6 +609,9 @@ class java_lang_reflect_Method : public java_lang_reflect_AccessibleObject {
 
   static int modifiers(oop method);
   static void set_modifiers(oop method, int value);
+
+  static oop root(oop method);
+  static void set_root(oop method, oop value);
 
   static bool has_signature_field();
   static oop signature(oop method);
@@ -649,6 +654,8 @@ class java_lang_reflect_Constructor : public java_lang_reflect_AccessibleObject 
   static int parameter_annotations_offset;
   static int type_annotations_offset;
 
+  static int root_offset;
+
   static void compute_offsets();
 
  public:
@@ -664,6 +671,9 @@ class java_lang_reflect_Constructor : public java_lang_reflect_AccessibleObject 
 
   static oop exception_types(oop constructor);
   static void set_exception_types(oop constructor, oop value);
+
+  static oop root(oop constructor);
+  static void set_root(oop constructor, oop value);
 
   static int slot(oop reflect);
   static void set_slot(oop reflect, int value);
@@ -707,6 +717,8 @@ class java_lang_reflect_Field : public java_lang_reflect_AccessibleObject {
   static int annotations_offset;
   static int type_annotations_offset;
 
+  static int root_offset;
+
   static void compute_offsets();
 
  public:
@@ -728,6 +740,9 @@ class java_lang_reflect_Field : public java_lang_reflect_AccessibleObject {
 
   static int modifiers(oop field);
   static void set_modifiers(oop field, int value);
+
+  static oop root(oop field);
+  static void set_root(oop field, oop value);
 
   static bool has_signature_field();
   static oop signature(oop constructor);

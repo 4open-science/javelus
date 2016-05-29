@@ -15,8 +15,8 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  *
- * Please contact Instituite of Computer Software, Nanjing University,
- * 163 Xianlin Avenue, Nanjing, Jiangsu Provience, 210046, China,
+ * Please contact Institute of Computer Software, Nanjing University,
+ * 163 Xianlin Avenue, Nanjing, Jiangsu Province, 210046, China,
  * or visit moon.nju.edu.cn if you need additional information or have any
  * questions.
 */

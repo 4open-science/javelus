@@ -712,7 +712,7 @@ Handle Reflection::new_type(Symbol* signature, KlassHandle k, TRAPS) {
 }
 
 
-oop Reflection::new_method(methodHandle method, bool intern_name, bool for_constant_pool_access, TRAPS) {
+oop Reflection::new_method(methodHandle method, bool intern_name, bool for_constant_pool_access, bool add, TRAPS) {
   // In jdk1.2.x, getMethods on an interface erroneously includes <clinit>, thus the complicated assert.
   // Also allow sun.reflect.ConstantPool to refer to <clinit> methods as java.lang.reflect.Methods.
   assert(!method()->is_initializer() ||
@@ -779,11 +779,14 @@ oop Reflection::new_method(methodHandle method, bool intern_name, bool for_const
     typeArrayOop an_oop = Annotations::make_java_array(method->type_annotations(), CHECK_NULL);
     java_lang_reflect_Method::set_type_annotations(mh(), an_oop);
   }
+  if (add) {
+    JNIHandles::make_weak_reflection(mh);
+  }
   return mh();
 }
 
 
-oop Reflection::new_constructor(methodHandle method, TRAPS) {
+oop Reflection::new_constructor(methodHandle method, bool add, TRAPS) {
   assert(method()->is_initializer(), "should call new_method instead");
 
   instanceKlassHandle  holder (THREAD, method->method_holder());
@@ -825,11 +828,14 @@ oop Reflection::new_constructor(methodHandle method, TRAPS) {
     typeArrayOop an_oop = Annotations::make_java_array(method->type_annotations(), CHECK_NULL);
     java_lang_reflect_Constructor::set_type_annotations(ch(), an_oop);
   }
+  if (add) {
+    JNIHandles::make_weak_reflection(ch);
+  }
   return ch();
 }
 
 
-oop Reflection::new_field(fieldDescriptor* fd, bool intern_name, TRAPS) {
+oop Reflection::new_field(fieldDescriptor* fd, bool intern_name, bool add, TRAPS) {
   Symbol*  field_name = fd->name();
   Handle name;
   if (intern_name) {
@@ -864,6 +870,9 @@ oop Reflection::new_field(fieldDescriptor* fd, bool intern_name, TRAPS) {
   if (java_lang_reflect_Field::has_type_annotations_field()) {
     typeArrayOop an_oop = Annotations::make_java_array(fd->type_annotations(), CHECK_NULL);
     java_lang_reflect_Field::set_type_annotations(rh(), an_oop);
+  }
+  if (add) {
+    JNIHandles::make_weak_reflection(rh);
   }
   return rh();
 }

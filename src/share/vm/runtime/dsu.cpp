@@ -15,8 +15,8 @@
 * along with this program; if not, write to the Free Software
 * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 *
-* Please contact Instituite of Computer Software, Nanjing University,
-* 163 Xianlin Avenue, Nanjing, Jiangsu Provience, 210046, China,
+* Please contact Institute of Computer Software, Nanjing University,
+* 163 Xianlin Avenue, Nanjing, Jiangsu Province, 210046, China,
 * or visit moon.nju.edu.cn if you need additional information or have any
 * questions.
 */
@@ -198,7 +198,7 @@ DSUError DSU::update(TRAPS) {
     // TODO class updating may swap contents of java.lang.Class
     // we have to perform the update ahead of that.
     //TraceTime t("Update changed reflection.");
-    //update_changed_reflection(CHECK_(DSU_ERROR_TO_BE_ADDED));
+    update_changed_reflection(CHECK_(DSU_ERROR_TO_BE_ADDED));
   }
   // 2.2). update each class contained in this DSU
   update_class_loaders(CHECK_(DSU_ERROR_UPDATE_DSUCLASSLOADER));
@@ -1563,6 +1563,15 @@ DSUError DSUClass::compare_and_normalize_class(InstanceKlass* old_version,
           dsu_method->set_matched_new_method_index(ni);
           // compare the method implementation here
 
+          jint old_flags = k_old_method->access_flags().as_int() & 0xFFFF;
+          jint new_flags = k_new_method->access_flags().as_int() & 0xFFFF;
+          if (old_flags != new_flags) {
+            DSU_WARN(("WARNING:: %s old %d and new %d", k_old_method->name_and_sig_as_C_string(),
+                old_flags,
+                new_flags));
+            new_updating_type = Javelus::join(new_updating_type, DSU_CLASS_METHOD);
+          }
+
           if (!MethodComparator::methods_EMCP(k_old_method, k_new_method)) {
             dsu_method->set_updating_type(DSU_METHOD_BC);
             DSU_TRACE(0x00000008, ("byte code of method %s::%s.%s is changed.",
@@ -1570,8 +1579,7 @@ DSUError DSUClass::compare_and_normalize_class(InstanceKlass* old_version,
                   k_old_method->name()->as_C_string(),
                   k_old_method->signature()->as_C_string()));
             new_updating_type = Javelus::join(new_updating_type, DSU_CLASS_BC);
-          }
-          else {
+          } else {
             DSU_TRACE(0x00000008, ("method %s::%s.%s is NOT changed.",
                   this->name()->as_C_string(),
                   k_old_method->name()->as_C_string(),
@@ -1736,15 +1744,14 @@ void DSUClass::swap_class(TRAPS) {
   old_version->set_inner_classes(new_version->inner_classes());
   new_version->set_inner_classes(old_inner_classes);
 
-    // The class file bytes from before any retransformable agents mucked
+  // The class file bytes from before any retransformable agents mucked
   // with them was cached on the scratch class, move to the_class.
   // Note: we still want to do this if nothing needed caching since it
   // should get cleared in the_class too.
   if (old_version->get_cached_class_file_bytes() == 0) {
     // the_class doesn't have a cache yet so copy it
     old_version->set_cached_class_file(new_version->get_cached_class_file());
-  }
-  else if (new_version->get_cached_class_file_bytes() !=
+  } else if (new_version->get_cached_class_file_bytes() !=
            old_version->get_cached_class_file_bytes()) {
     // The same class can be present twice in the scratch classes list or there
     // are multiple concurrent RetransformClasses calls on different threads.
@@ -1756,8 +1763,9 @@ void DSUClass::swap_class(TRAPS) {
   // always owns these bytes.
   new_version->set_cached_class_file(NULL);
 
-
   {
+    // Old version has been swapped with new methods
+    // Here we re-create the vtable and itable.
     ResourceMark rm(THREAD);
     // no exception should happen here since we explicitly
     // do not check loader constraints.
@@ -1774,7 +1782,6 @@ void DSUClass::swap_class(TRAPS) {
     old_version->vtable()->verify(tty);
 #endif
   }
-
 
     // Copy the "source file name" attribute from new class version
   old_version->set_source_file_name_index(
@@ -1862,6 +1869,16 @@ void DSUClass::swap_class(TRAPS) {
 
   // as we swap the methods, we should update the vtable and itable accordingly
   update_subklass_vtable_and_itable(old_version,THREAD);
+
+  {// update java mirror
+    oop old_java_mirror = old_version->java_mirror();
+    oop new_java_mirror = new_version->java_mirror();
+
+    InstanceKlass * java_lang_Class = InstanceKlass::cast(old_java_mirror->klass());
+    Javelus::copy_fields(new_java_mirror, old_java_mirror, java_lang_Class);
+    old_version->set_java_mirror(new_java_mirror);
+    new_version->set_java_mirror(old_java_mirror);
+  }
 
 #ifdef ASSERT
   old_version->vtable()->verify(tty);
@@ -2094,6 +2111,16 @@ void DSUClass::redefine_class(TRAPS) {
   post_fix_new_inplace_new_class  (old_version, new_version, CHECK);
   post_fix_stale_new_class        (old_version, new_version, CHECK);
   post_fix_vtable_and_itable      (old_version, new_version, CHECK);
+
+  {// update java mirror
+    oop old_java_mirror = old_version->java_mirror();
+    oop new_java_mirror = new_version->java_mirror();
+
+    InstanceKlass * java_lang_Class = InstanceKlass::cast(old_java_mirror->klass());
+    Javelus::copy_fields(new_java_mirror, old_java_mirror, java_lang_Class);
+    // all mirrors points to the new_version
+    // all cached reflections are nullified.
+  }
 }
 
 void DSUClass::install_new_version(InstanceKlass* old_version, InstanceKlass* new_version, TRAPS) {
@@ -2711,18 +2738,11 @@ void DSU::check_and_append_changed_reflect_field(oop* reflection) {
     return;
   }
 
-  //TODO
-  InstanceKlass* ikh = InstanceKlass::cast(klass);
-  if (ikh->dsu_will_be_redefined()) {
-
-  } else if (ikh->dsu_will_be_deleted()) {
-    ShouldNotReachHere();
-  } else if (ikh->dsu_will_be_swapped()) {
-
-  } else {
+  if (!is_changed_reflect_field(*reflection)) {
     return;
   }
-
+  //TODO
+  InstanceKlass* ikh = InstanceKlass::cast(klass);
   int slot = java_lang_reflect_Field::slot(*reflection);
   fieldDescriptor fd;
   fd.reinitialize(ikh, slot);
@@ -2748,7 +2768,7 @@ void DSU::check_and_append_changed_reflect_field(oop* reflection) {
     return;
   }
 
-  oop new_reflection = Reflection::new_field(&new_fd, false, thread);
+  oop new_reflection = Reflection::new_field(&new_fd, false, false, thread);
   jobject new_handle = JNIHandles::make_global(Handle(new_reflection));
 
   dsu_class->append_resolved_reflection(fd.name(), fd.signature(), new_handle);
@@ -2763,17 +2783,12 @@ void DSU::check_and_append_changed_reflect_method(oop* reflection) {
     return;
   }
 
-  //TODO
-  InstanceKlass* ikh = InstanceKlass::cast(klass);
-  if (ikh->dsu_will_be_redefined()) {
-
-  } else if (ikh->dsu_will_be_deleted()) {
-    ShouldNotReachHere();
-  } else if (ikh->dsu_will_be_swapped()) {
-
-  } else {
+  if (!is_changed_reflect_method(*reflection)) {
     return;
   }
+
+  //TODO
+  InstanceKlass* ikh = InstanceKlass::cast(klass);
 
   int slot = java_lang_reflect_Method::slot(*reflection);
   methodHandle method (thread, ikh->method_with_idnum(slot));
@@ -2799,7 +2814,7 @@ void DSU::check_and_append_changed_reflect_method(oop* reflection) {
     return;
   }
 
-  oop new_reflection = Reflection::new_method(new_method, false, false, thread);
+  oop new_reflection = Reflection::new_method(new_method, false, false, false, thread);
   jobject new_handle = JNIHandles::make_global(Handle(new_reflection));
 
   dsu_class->append_resolved_reflection(method->name(), method->signature(), new_handle);
@@ -2816,21 +2831,15 @@ void DSU::check_and_append_changed_reflect_constructor(oop* reflection) {
     return;
   }
 
-  //TODO
+
   InstanceKlass* ikh = InstanceKlass::cast(klass);
-  if (ikh->dsu_will_be_redefined()) {
-
-  } else if (ikh->dsu_will_be_deleted()) {
-    ShouldNotReachHere();
-  } else if (ikh->dsu_will_be_swapped()) {
-
-  } else {
-    return;
-  }
-
   int slot = java_lang_reflect_Constructor::slot(*reflection);
   methodHandle method (thread, ikh->method_with_idnum(slot));
   assert(method.not_null(), "sanity check");
+
+  if (!is_changed_reflect_constructor(*reflection)) {
+    return;
+  }
 
   DSU* active_dsu = Javelus::active_dsu();
   Symbol* class_name = ikh->name();
@@ -2854,7 +2863,7 @@ void DSU::check_and_append_changed_reflect_constructor(oop* reflection) {
     return;
   }
 
-  oop new_reflection = Reflection::new_constructor(new_method, thread);
+  oop new_reflection = Reflection::new_constructor(new_method, false, thread);
   jobject new_handle = JNIHandles::make_global(Handle(thread, new_reflection));
 
   dsu_class->append_resolved_reflection(method->name(), method->signature(), new_handle);
@@ -2945,6 +2954,7 @@ void DSU::update_changed_reflect_field(oop old_reflection) {
     return;
   }
 
+  assert(new_reflection != NULL, "should not be null");
   update_changed_reflect_field(old_reflection, new_reflection);
 }
 
@@ -2962,6 +2972,7 @@ void DSU::update_changed_reflect_method(oop old_reflection) {
     return;
   }
 
+  assert(new_reflection != NULL, "should not be null");
   update_changed_reflect_method(old_reflection, new_reflection);
 }
 
@@ -2980,10 +2991,21 @@ void DSU::update_changed_reflect_constructor(oop old_reflection) {
     return;
   }
 
+  assert(new_reflection != NULL, "should not be null");
   update_changed_reflect_constructor(old_reflection, new_reflection);
 }
 
 void DSU::update_changed_reflect_field(oop old_reflection, oop new_reflection) {
+  InstanceKlass* ik = InstanceKlass::cast(old_reflection->klass());
+
+  oop root = java_lang_reflect_Field::root(old_reflection);
+  // copy contents from new to old
+  while (ik != NULL) {
+    Javelus::copy_fields(new_reflection, old_reflection, ik);
+    ik = ik->superklass();
+  }
+  java_lang_reflect_Field::set_root(old_reflection, root);
+#if 0
   //oop clazz = java_lang_reflect_Field::clazz(new_reflection);
   //java_lang_reflect_Field::set_clazz(old_reflection, clazz);
 
@@ -3002,9 +3024,20 @@ void DSU::update_changed_reflect_field(oop old_reflection, oop new_reflection) {
     oop type_annotations = java_lang_reflect_Field::type_annotations(new_reflection);
     java_lang_reflect_Field::set_type_annotations(old_reflection, type_annotations);
   }
+#endif
 }
 
 void DSU::update_changed_reflect_method(oop old_reflection, oop new_reflection) {
+  InstanceKlass* ik = InstanceKlass::cast(old_reflection->klass());
+
+  oop root = java_lang_reflect_Method::root(old_reflection);
+  // copy contents from new to old
+  while (ik != NULL) {
+    Javelus::copy_fields(new_reflection, old_reflection, ik);
+    ik = ik->superklass();
+  }
+  java_lang_reflect_Method::set_root(old_reflection, root);
+#if 0
   //
   int slot = java_lang_reflect_Method::slot(new_reflection);
   java_lang_reflect_Method::set_slot(old_reflection, slot);
@@ -3050,9 +3083,20 @@ void DSU::update_changed_reflect_method(oop old_reflection, oop new_reflection) 
     oop type_annotations = java_lang_reflect_Method::type_annotations(new_reflection);
     java_lang_reflect_Method::set_type_annotations(old_reflection, type_annotations);
   }
+#endif
 }
 
 void DSU::update_changed_reflect_constructor(oop old_reflection, oop new_reflection) {
+  InstanceKlass* ik = InstanceKlass::cast(old_reflection->klass());
+
+  oop root = java_lang_reflect_Constructor::root(old_reflection);
+  // copy contents from new to old
+  while (ik != NULL) {
+    Javelus::copy_fields(new_reflection, old_reflection, ik);
+    ik = ik->superklass();
+  }
+  java_lang_reflect_Constructor::set_root(old_reflection, root);
+#if 0
   int slot = java_lang_reflect_Constructor::slot(new_reflection);
   java_lang_reflect_Constructor::set_slot(old_reflection, slot);
 
@@ -3083,6 +3127,7 @@ void DSU::update_changed_reflect_constructor(oop old_reflection, oop new_reflect
     oop type_annotations = java_lang_reflect_Constructor::type_annotations(new_reflection);
     java_lang_reflect_Constructor::set_type_annotations(old_reflection, type_annotations);
   }
+#endif
 }
 
 // XXX This should be called before updating class;
@@ -4342,7 +4387,7 @@ void DSUClassLoader::remove_unchanged_classes() {
     DSUClass *q = _first_class;
     // p is next
     // q is previous
-    while(p != NULL) {
+    while (p != NULL) {
       if (p->prepared() && p->updating_type() == DSU_CLASS_NONE) {
         q->set_next(p->next());
         if (_last_class == p) {
@@ -4419,6 +4464,10 @@ void DSUClass::append_resolved_reflection(Symbol* name, Symbol* sig, jobject ref
     _resolved_reflections_name_and_sig = new (ResourceObj::C_HEAP, mtInternal) GrowableArray<Symbol*>(15, true);
   }
 
+  if (find_resolved_reflection(name, sig) != NULL) {
+    return;
+  }
+
   _resolved_reflections_name_and_sig->append(name);
   _resolved_reflections_name_and_sig->append(sig);
   _resolved_reflections->append(reflection);
@@ -4427,18 +4476,15 @@ void DSUClass::append_resolved_reflection(Symbol* name, Symbol* sig, jobject ref
 oop DSUClass::find_resolved_reflection(Symbol* old_name, Symbol* old_sig) {
   assert(_resolved_reflections != NULL, "should be calculated before VM safe point.");
 
-
   int length = _resolved_reflections->length();
   for(int i=0, j=0; j < length; j++, i+=2) {
     Symbol* name = _resolved_reflections_name_and_sig->at(i);
     Symbol* sig  = _resolved_reflections_name_and_sig->at(i + 1);
-    oop resolved_reflection = JNIHandles::resolve(_resolved_reflections->at(j));
     if (name == old_name && sig == old_sig) {
-      return resolved_reflection;
+      return JNIHandles::resolve(_resolved_reflections->at(j));
     }
   }
 
-  ShouldNotReachHere();
   return NULL;
 }
 

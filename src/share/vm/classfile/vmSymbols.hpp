@@ -244,6 +244,7 @@
   template(returnType_name,                           "returnType")                               \
   template(signature_name,                            "signature")                                \
   template(slot_name,                                 "slot")                                     \
+  template(root_name,                                 "root")                                     \
                                                                                                   \
   /* Support for annotations (JDK 1.5 and above) */                                               \
                                                                                                   \
@@ -502,6 +503,9 @@
   template(classloader_signature,                     "Ljava/lang/ClassLoader;")                                  \
   template(object_signature,                          "Ljava/lang/Object;")                                       \
   template(class_signature,                           "Ljava/lang/Class;")                                        \
+  template(field_signature,                           "Ljava/lang/reflect/Field;")                                \
+  template(method_signature,                          "Ljava/lang/reflect/Method;")                               \
+  template(constructor_signature,                     "Ljava/lang/reflect/Constructor;")                          \
   template(string_signature,                          "Ljava/lang/String;")                                       \
   template(reference_signature,                       "Ljava/lang/ref/Reference;")                                \
   template(executable_signature,                      "Ljava/lang/reflect/Executable;")                           \

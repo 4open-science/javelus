@@ -149,13 +149,14 @@ void JNIHandles::oops_do(OopClosure* f) {
 
 void JNIHandles::weak_oops_do(BoolObjectClosure* is_alive, OopClosure* f) {
   _weak_global_handles->weak_oops_do(is_alive, f);
+  _weak_reflection_handles->weak_oops_do(is_alive, f);
 }
 
 
 void JNIHandles::initialize() {
   _global_handles      = JNIHandleBlock::allocate_block();
   _weak_global_handles = JNIHandleBlock::allocate_block();
-  
+
   _weak_reflection_handles = JNIHandleBlock::allocate_block();
   EXCEPTION_MARK;
   // We will never reach the CATCH below since Exceptions::_throw will cause
@@ -224,7 +225,7 @@ public:
   bool do_object_b(oop obj) { return true; }
 };
 
-int JNIHandles::collect_changed_reflections(OopClosure* f){
+int JNIHandles::collect_changed_reflections(OopClosure* f) {
   MutexLocker ml(DSUReflection_lock);
   AlwaysAliveClosure alwaysAlive;
   _weak_reflection_handles->weak_oops_do_unsafe(&alwaysAlive, f);

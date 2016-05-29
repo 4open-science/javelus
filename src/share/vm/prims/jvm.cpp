@@ -1962,7 +1962,7 @@ JVM_ENTRY(jobjectArray, JVM_GetClassDeclaredFields(JNIEnv *env, jclass ofClass, 
 
     if (!publicOnly || fs.access_flags().is_public()) {
       fd.reinitialize(k(), fs.index());
-      oop field = Reflection::new_field(&fd, UseNewReflection, CHECK_NULL);
+      oop field = Reflection::new_field(&fd, UseNewReflection, true, CHECK_NULL);
       result->obj_at_put(out_idx, field);
       ++out_idx;
     }
@@ -2038,9 +2038,9 @@ static jobjectArray get_class_declared_methods_helper(
     } else {
       oop m;
       if (want_constructor) {
-        m = Reflection::new_constructor(method, CHECK_NULL);
+        m = Reflection::new_constructor(method, true, CHECK_NULL);
       } else {
-        m = Reflection::new_method(method, UseNewReflection, false, CHECK_NULL);
+        m = Reflection::new_method(method, UseNewReflection, false, true, CHECK_NULL);
       }
       result->obj_at_put(i, m);
     }
@@ -2163,9 +2163,9 @@ static jobject get_method_at_helper(constantPoolHandle cp, jint index, bool forc
   }
   oop method;
   if (!m->is_initializer() || m->is_static()) {
-    method = Reflection::new_method(m, true, true, CHECK_NULL);
+    method = Reflection::new_method(m, true, true, true, CHECK_NULL);
   } else {
-    method = Reflection::new_constructor(m, CHECK_NULL);
+    method = Reflection::new_constructor(m, true, CHECK_NULL);
   }
   return JNIHandles::make_local(method);
 }
@@ -2213,7 +2213,7 @@ static jobject get_field_at_helper(constantPoolHandle cp, jint index, bool force
   if (target_klass == NULL) {
     THROW_MSG_0(vmSymbols::java_lang_RuntimeException(), "Unable to look up field in target class");
   }
-  oop field = Reflection::new_field(&fd, true, CHECK_NULL);
+  oop field = Reflection::new_field(&fd, true, true, CHECK_NULL);
   return JNIHandles::make_local(field);
 }
 
