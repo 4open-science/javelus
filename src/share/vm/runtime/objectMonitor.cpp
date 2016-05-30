@@ -965,6 +965,7 @@ void ATTR ObjectMonitor::exit(bool not_suspended, TRAPS) {
        _recursions = 0 ;
        OwnerIsThread = 1 ;
      } else {
+       oop obj = oop(_object);
        // NOTE: we need to handle unbalanced monitor enter/exit
        // in native code by throwing an exception.
        // TODO: Throw an IllegalMonitorStateException ?

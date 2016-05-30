@@ -187,35 +187,37 @@ void ObjectSynchronizer::fast_exit(oop object, BasicLock* lock, TRAPS) {
   // if displaced header is null, the previous enter is recursive enter, no-op
   markOop dhw = lock->displaced_header();
   markOop mark = object->mark();
+  oop mark_holder = object;
   if (mark->is_mixed_object()) {
-    object = (oop) mark->decode_phantom_object_pointer();
-    mark = object->mark();
-    assert(!object->mark()->has_bias_pattern(), "should not see bias pattern here");
+    mark_holder = (oop) mark->decode_phantom_object_pointer();
+    mark = mark_holder->mark();
   }
+  assert(!mark_holder->mark()->has_bias_pattern(), "should not see bias pattern here");
+  assert(!mark->is_mixed_object(), "should decode mixed object first");
 
   if (dhw == NULL) {
      // Recursive stack-lock.
      // Diagnostics -- Could be: stack-locked, inflating, inflated.
-     mark = object->mark() ;
+     mark = mark_holder->mark() ;
      assert (!mark->is_neutral(), "invariant") ;
      if (mark->has_locker() && mark != markOopDesc::INFLATING()) {
         assert(THREAD->is_lock_owned((address)mark->locker()), "invariant") ;
      }
      if (mark->has_monitor()) {
         ObjectMonitor * m = mark->monitor() ;
-        assert(((oop)(m->object()))->mark() == mark, "invariant") ;
+        assert(((oop)(m->object()))->mark() == mark || ((oop)(m->object()))->mark()->is_mixed_object(), "invariant") ;
         assert(m->is_entered(THREAD), "invariant") ;
      }
      return ;
   }
 
-  mark = object->mark() ;
+  mark = mark_holder->mark() ;
 
   // If the object is stack-locked by the current thread, try to
   // swing the displaced header from the box back to the mark.
   if (mark == (markOop) lock) {
      assert (dhw->is_neutral(), "invariant") ;
-     if ((markOop) Atomic::cmpxchg_ptr (dhw, object->mark_addr(), mark) == mark) {
+     if ((markOop) Atomic::cmpxchg_ptr (dhw, mark_holder->mark_addr(), mark) == mark) {
         TEVENT (fast_exit: release stacklock) ;
         return;
      }
@@ -231,17 +233,19 @@ void ObjectSynchronizer::fast_exit(oop object, BasicLock* lock, TRAPS) {
 // failed in the interpreter/compiler code.
 void ObjectSynchronizer::slow_enter(Handle obj, BasicLock* lock, TRAPS) {
   markOop mark = obj->mark();
+  Handle mark_holder = obj;
   if (mark->is_mixed_object()) {
-    obj = Handle(THREAD, (oop)mark->decode_phantom_object_pointer());
-    mark = obj->mark();
+    mark_holder = Handle(THREAD, (oop)mark->decode_phantom_object_pointer());
+    mark = mark_holder->mark();
   }
   assert(!mark->has_bias_pattern(), "should not see bias pattern here");
+  assert(!mark->is_mixed_object(), "should decode mixed object first");
 
   if (mark->is_neutral()) {
     // Anticipate successful CAS -- the ST of the displaced mark must
     // be visible <= the ST performed by the CAS.
     lock->set_displaced_header(mark);
-    if (mark == (markOop) Atomic::cmpxchg_ptr(lock, obj()->mark_addr(), mark)) {
+    if (mark == (markOop) Atomic::cmpxchg_ptr(lock, mark_holder()->mark_addr(), mark)) {
       TEVENT (slow_enter: release stacklock) ;
       return ;
     }
@@ -423,9 +427,10 @@ void ObjectSynchronizer::notify(Handle obj, TRAPS) {
   }
 
   markOop mark = obj->mark();
+  Handle mark_holder = obj;
   if (mark->is_mixed_object()) {
-    obj = Handle(THREAD, (oop)mark->decode_phantom_object_pointer());
-    mark = obj->mark();
+    mark_holder = Handle(THREAD, (oop)mark->decode_phantom_object_pointer());
+    mark = mark_holder->mark();
   }
   if (mark->has_locker() && THREAD->is_lock_owned((address)mark->locker())) {
     return;
@@ -441,9 +446,10 @@ void ObjectSynchronizer::notifyall(Handle obj, TRAPS) {
   }
 
   markOop mark = obj->mark();
+  Handle mark_holder = obj;
   if (mark->is_mixed_object()) {
-    obj = Handle(THREAD, (oop)mark->decode_phantom_object_pointer());
-    mark = obj->mark();
+    mark_holder = Handle(THREAD, (oop)mark->decode_phantom_object_pointer());
+    mark = mark_holder->mark();
   }
   if (mark->has_locker() && THREAD->is_lock_owned((address)mark->locker())) {
     return;
@@ -620,9 +626,10 @@ static inline intptr_t get_next_hash(Thread * Self, oop obj) {
 //
 intptr_t ObjectSynchronizer::FastHashCode (Thread * Self, oop obj) {
   markOop mark = ReadStableMark (obj);
+  oop mark_holder = obj;
   if (mark->is_mixed_object()) {
-    obj = (oop) mark->decode_phantom_object_pointer();
-    mark = ReadStableMark (obj);
+    mark_holder = (oop) mark->decode_phantom_object_pointer();
+    mark = ReadStableMark (mark_holder);
   }
   if (UseBiasedLocking) {
     // NOTE: many places throughout the JVM do not expect a safepoint
@@ -632,6 +639,7 @@ intptr_t ObjectSynchronizer::FastHashCode (Thread * Self, oop obj) {
     // been checked to make sure they can handle a safepoint. The
     // added check of the bias pattern is to avoid useless calls to
     // thread-local storage.
+    assert(!obj->mark()->is_mixed_object(), "Mixed object should not be used with BiasedLocking");
     if (obj->mark()->has_bias_pattern()) {
       // Box and unbox the raw reference just in case we cause a STW safepoint.
       Handle hobj (Self, obj) ;
@@ -658,9 +666,13 @@ intptr_t ObjectSynchronizer::FastHashCode (Thread * Self, oop obj) {
   markOop temp, test;
   intptr_t hash;
   mark = ReadStableMark (obj);
-
+  if (mark->is_mixed_object()) {
+    mark_holder = (oop) mark->decode_phantom_object_pointer();
+    mark = ReadStableMark (mark_holder);
+  }
   // object should remain ineligible for biased locking
   assert (!mark->has_bias_pattern(), "invariant") ;
+  assert (!mark->is_mixed_object(), "invariant") ;
 
   if (mark->is_neutral()) {
     hash = mark->hash();              // this is a normal header
@@ -670,7 +682,7 @@ intptr_t ObjectSynchronizer::FastHashCode (Thread * Self, oop obj) {
     hash = get_next_hash(Self, obj);  // allocate a new hash code
     temp = mark->copy_set_hash(hash); // merge the hash code into header
     // use (machine word version) atomic operation to install the hash
-    test = (markOop) Atomic::cmpxchg_ptr(temp, obj->mark_addr(), mark);
+    test = (markOop) Atomic::cmpxchg_ptr(temp, mark_holder->mark_addr(), mark);
     if (test == mark) {
       return hash;
     }
@@ -746,10 +758,14 @@ bool ObjectSynchronizer::current_thread_holds_lock(JavaThread* thread,
   oop obj = h_obj();
 
   markOop mark = ReadStableMark (obj) ;
+  oop mark_holder = obj;
   if (mark->is_mixed_object()) {
-    obj = (oop) mark->decode_phantom_object_pointer();
-    mark = ReadStableMark(obj);
+    mark_holder = (oop) mark->decode_phantom_object_pointer();
+    mark = ReadStableMark(mark_holder);
   }
+
+  assert(!mark->is_mixed_object(), "should decode mixed object first");
+
   // Uncontended case, header points to stack
   if (mark->has_locker()) {
     return thread->is_lock_owned((address)mark->locker());
@@ -788,10 +804,14 @@ ObjectSynchronizer::LockOwnership ObjectSynchronizer::query_lock_ownership
   assert(self == JavaThread::current(), "Can only be called on current thread");
   oop obj = h_obj();
   markOop mark = ReadStableMark (obj) ;
+  oop mark_holder = obj;
   if (mark->is_mixed_object()) {
-    obj = (oop) mark->decode_phantom_object_pointer();
-    mark = ReadStableMark(obj);
+    mark_holder = (oop) mark->decode_phantom_object_pointer();
+    mark = ReadStableMark(mark_holder);
   }
+
+  assert(!mark->is_mixed_object(), "should decode mixed object first");
+
   // CASE: stack-locked.  Mark points to a BasicLock on the owner's stack.
   if (mark->has_locker()) {
     return self->is_lock_owned((address)mark->locker()) ?
@@ -828,10 +848,14 @@ JavaThread* ObjectSynchronizer::get_lock_owner(Handle h_obj, bool doLock) {
   address owner = NULL;
 
   markOop mark = ReadStableMark (obj) ;
+  oop mark_holder = obj;
   if (mark->is_mixed_object()) {
-    obj = (oop) mark->decode_phantom_object_pointer();
-    mark = ReadStableMark(obj);
+    mark_holder = (oop) mark->decode_phantom_object_pointer();
+    mark = ReadStableMark(mark_holder);
   }
+
+  assert(!mark->is_mixed_object(), "should decode mixed object first");
+
   // Uncontended case, header points to stack
   if (mark->has_locker()) {
     owner = (address) mark->locker();
@@ -1210,10 +1234,14 @@ void ObjectSynchronizer::omFlush (Thread * Self) {
 // Fast path code shared by multiple functions
 ObjectMonitor* ObjectSynchronizer::inflate_helper(oop obj) {
   markOop mark = obj->mark();
+  oop mark_holder = obj;
   if (mark->is_mixed_object()) {
-    obj = (oop) mark->decode_phantom_object_pointer();
-    mark = obj->mark();
+    mark_holder = (oop) mark->decode_phantom_object_pointer();
+    mark = mark_holder->mark();
   }
+
+  assert(!mark->is_mixed_object(), "should decode mixed object first");
+
   if (mark->has_monitor()) {
     assert(ObjectSynchronizer::verify_objmon_isinpool(mark->monitor()), "monitor is invalid");
     assert(mark->monitor()->header()->is_neutral(), "monitor must record a good object header");
@@ -1233,8 +1261,9 @@ ObjectMonitor * ATTR ObjectSynchronizer::inflate (Thread * Self, oop object) {
   assert (Universe::verify_in_progress() ||
           !SafepointSynchronize::is_at_safepoint(), "invariant") ;
 
+  oop mark_holder = object;
   for (;;) {
-      const markOop mark = object->mark() ;
+      const markOop mark = mark_holder->mark() ;
       assert (!mark->has_bias_pattern(), "invariant") ;
 
       // The mark can be in one of the following states:
@@ -1247,9 +1276,11 @@ ObjectMonitor * ATTR ObjectSynchronizer::inflate (Thread * Self, oop object) {
 
       // CASE: mixed object
       if (mark->is_mixed_object()) {
-        object = (oop) mark->decode_phantom_object_pointer();
+        mark_holder = (oop) mark->decode_phantom_object_pointer();
         continue;
       }
+
+      assert(!mark->is_mixed_object(), "should decode mixed object first");
 
       // CASE: inflated
       if (mark->has_monitor()) {
@@ -1302,7 +1333,7 @@ ObjectMonitor * ATTR ObjectSynchronizer::inflate (Thread * Self, oop object) {
           m->_recursions   = 0 ;
           m->_SpinDuration = ObjectMonitor::Knob_SpinLimit ;   // Consider: maintain by type/class
 
-          markOop cmp = (markOop) Atomic::cmpxchg_ptr (markOopDesc::INFLATING(), object->mark_addr(), mark) ;
+          markOop cmp = (markOop) Atomic::cmpxchg_ptr (markOopDesc::INFLATING(), mark_holder->mark_addr(), mark) ;
           if (cmp != mark) {
              omRelease (Self, m, true) ;
              continue ;       // Interference -- just retry
@@ -1355,8 +1386,8 @@ ObjectMonitor * ATTR ObjectSynchronizer::inflate (Thread * Self, oop object) {
 
           // Must preserve store ordering. The monitor state must
           // be stable at the time of publishing the monitor address.
-          guarantee (object->mark() == markOopDesc::INFLATING(), "invariant") ;
-          object->release_set_mark(markOopDesc::encode(m));
+          guarantee (mark_holder->mark() == markOopDesc::INFLATING(), "invariant") ;
+          mark_holder->release_set_mark(markOopDesc::encode(m));
 
           // Hopefully the performance counters are allocated on distinct cache lines
           // to avoid false sharing on MP systems ...
@@ -1395,7 +1426,7 @@ ObjectMonitor * ATTR ObjectSynchronizer::inflate (Thread * Self, oop object) {
       m->_Responsible  = NULL ;
       m->_SpinDuration = ObjectMonitor::Knob_SpinLimit ;       // consider: keep metastats by type/class
 
-      if (Atomic::cmpxchg_ptr (markOopDesc::encode(m), object->mark_addr(), mark) != mark) {
+      if (Atomic::cmpxchg_ptr (markOopDesc::encode(m), mark_holder->mark_addr(), mark) != mark) {
           m->set_object (NULL) ;
           m->set_owner  (NULL) ;
           m->OwnerIsThread = 0 ;
@@ -1467,12 +1498,13 @@ enum ManifestConstants {
 bool ObjectSynchronizer::deflate_monitor(ObjectMonitor* mid, oop obj,
                                          ObjectMonitor** FreeHeadp, ObjectMonitor** FreeTailp) {
   bool deflated;
+  oop mark_holder = obj;
   if (obj->mark()->is_mixed_object()) {
-    obj = oop(obj->mark()->decode_phantom_object_pointer());
+    mark_holder = oop(obj->mark()->decode_phantom_object_pointer());
   }
   // Normal case ... The monitor is associated with obj.
-  guarantee (obj->mark() == markOopDesc::encode(mid), "invariant") ;
-  guarantee (mid == obj->mark()->monitor(), "invariant");
+  guarantee (mark_holder->mark() == markOopDesc::encode(mid), "invariant") ;
+  guarantee (mid == mark_holder->mark()->monitor(), "invariant");
   guarantee (mid->header()->is_neutral(), "invariant");
 
   if (mid->is_busy()) {
@@ -1484,7 +1516,7 @@ bool ObjectSynchronizer::deflate_monitor(ObjectMonitor* mid, oop obj,
      // plain old deflation ...
      TEVENT (deflate_idle_monitors - scavenge1) ;
      if (TraceMonitorInflation) {
-       if (obj->is_instance()) {
+       if (mark_holder->is_instance()) {
          ResourceMark rm;
            tty->print_cr("Deflating object " INTPTR_FORMAT " , mark " INTPTR_FORMAT " , type %s",
                 (void *) obj, (intptr_t) obj->mark(), obj->klass()->external_name());
@@ -1492,7 +1524,7 @@ bool ObjectSynchronizer::deflate_monitor(ObjectMonitor* mid, oop obj,
      }
 
      // Restore the header back to obj
-     obj->release_set_mark(mid->header());
+     mark_holder->release_set_mark(mid->header());
      mid->clear();
 
      assert (mid->object() == NULL, "invariant") ;

@@ -709,16 +709,10 @@ void InterpreterMacroAssembler::lock_object(Register lock_reg) {
     movptr(obj_reg, Address(lock_reg, obj_offset));
 
     // Check whether swap_reg is mixed object
-    Label notMix;
     movptr(swap_reg, Address(obj_reg, oopDesc::mark_offset_in_bytes()));
     andptr(swap_reg, markOopDesc::mixed_object_mask_in_place);
     cmpptr(swap_reg, markOopDesc::mixed_object_value);
-    jcc(Assembler::notEqual, notMix);
-    // load the phantom object here
-    movptr(obj_reg, Address(obj_reg, oopDesc::mark_offset_in_bytes()));
-    andptr(obj_reg, ~markOopDesc::mixed_object_mask_in_place);
-    // obj_reg now is the phantom object
-    bind(notMix);
+    jcc(Assembler::equal, slow_case);
     /* end of mix support*/
 
     if (UseBiasedLocking) {
@@ -813,8 +807,10 @@ void InterpreterMacroAssembler::unlock_object(Register lock_reg) {
     andptr(swap_reg, markOopDesc::mixed_object_mask_in_place);
     cmpptr(swap_reg, markOopDesc::mixed_object_value);
     jcc(Assembler::notEqual, notMix);
-    movptr(obj_reg, Address(obj_reg, oopDesc::mark_offset_in_bytes()));
-    andptr(obj_reg, ~markOopDesc::mixed_object_mask_in_place);
+    call_VM(noreg,
+            CAST_FROM_FN_PTR(address, InterpreterRuntime::monitorexit),
+            lock_reg);
+    jmp(done);
     bind(notMix);
 
     // Convert from BasicObjectLock structure to object and BasicLock

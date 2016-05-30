@@ -1876,8 +1876,6 @@ void DSUClass::swap_class(TRAPS) {
 
     InstanceKlass * java_lang_Class = InstanceKlass::cast(old_java_mirror->klass());
     Javelus::copy_fields(new_java_mirror, old_java_mirror, java_lang_Class);
-    old_version->set_java_mirror(new_java_mirror);
-    new_version->set_java_mirror(old_java_mirror);
   }
 
 #ifdef ASSERT

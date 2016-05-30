@@ -1868,6 +1868,18 @@ oop java_lang_StackTraceElement::create(Handle mirror, int method_id,
 
   Method* method = holder->method_with_orig_idnum(method_id, version);
 
+  if (method == NULL) {
+    assert(!holder->is_stale_class(), "holder must be stale");
+  } else if (method->is_old()) {
+    assert(holder->is_stale_class(), "holder must be stale");
+    holder = holder->next_version();
+    assert(holder != NULL, "next version should not be null");
+    method = holder->find_method(method->name(), method->signature());
+    assert(method != NULL, "sanity check: new method should not be null");
+  } else if (holder->is_stale_class()) {
+    assert(false, "method should be old");
+  }
+
   // The method can be NULL if the requested class version is gone
   Symbol* sym = (method != NULL) ? method->name() : holder->constants()->symbol_at(cpref);
 

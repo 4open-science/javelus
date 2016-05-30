@@ -293,6 +293,7 @@ class markOopDesc: public oopDesc {
   }
   ObjectMonitor* monitor() const {
     assert(has_monitor(), "check");
+    assert(!is_mixed_object(), "check");
     // Use xor instead of &~ to provide one extra tag-bit check.
     return (ObjectMonitor*) (value() ^ monitor_value);
   }
