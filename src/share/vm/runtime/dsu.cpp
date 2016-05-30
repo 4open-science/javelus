@@ -5592,6 +5592,9 @@ void Javelus::install_return_barrier_single_thread(JavaThread * thread, intptr_t
               p2i(barrier)));
       if (current->is_interpreted_frame()) {
         Bytecodes::Code code = Bytecodes::code_at(current->interpreter_frame_method(), current->interpreter_frame_bcp());
+        if (!(code == Bytecodes::_invokespecial || code == Bytecodes::_invokevirtual || code == Bytecodes::_invokedynamic || code == Bytecodes::_invokeinterface)) {
+          current->print_on(tty);
+        }
         assert(code == Bytecodes::_invokespecial || code == Bytecodes::_invokevirtual || code == Bytecodes::_invokedynamic || code == Bytecodes::_invokeinterface, "sanity check");
         const int length = Bytecodes::length_at(current->interpreter_frame_method(), current->interpreter_frame_bcp());
         Bytecode_invoke bi(methodHandle(current->interpreter_frame_method()), current->interpreter_frame_bci());
@@ -5599,9 +5602,6 @@ void Javelus::install_return_barrier_single_thread(JavaThread * thread, intptr_t
         address barrier_addr, return_addr;
         barrier_addr = Interpreter::return_with_barrier_entry(tos, length, code);
         return_addr = Interpreter::return_entry(tos, length, code);
-        if (!(current->pc() == return_addr || current->pc() == barrier_addr)) {
-          current->print_on(tty);
-        }
         assert(current->pc() == return_addr || current->pc() == barrier_addr, "must be return or pre-set return with barrier");
         current->patch_pc(thread, barrier_addr);
       } else if (current->is_compiled_frame()) {
@@ -6264,7 +6264,7 @@ void Javelus::link_mixed_object_slow(Handle inplace_object, Handle new_phantom_o
     new_phantom_object->set_mark(old_mark);
     retry_count--;
     if(retry_count <= 0){
-      tty->print_cr("[DSU] Link MixObject failed.");
+      DSU_WARN(("Linking mixed object failed."));
       break;
     }
   }

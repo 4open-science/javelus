@@ -1762,6 +1762,15 @@ void MacroAssembler::fast_lock(Register objReg, Register boxReg, Register tmpReg
 
     Label IsInflated, DONE_LABEL;
 
+    Label notMix;
+    movptr(tmpReg, Address(objReg, 0));          // [FETCH]
+    andptr(tmpReg, markOopDesc::mixed_object_mask_in_place);
+    cmpptr(tmpReg, markOopDesc::mixed_object_value);
+    jcc(Assembler::notEqual, notMix);
+    cmpptr (rsp, (int32_t)NULL_WORD); // goto slow case
+    jmp(DONE_LABEL);
+    bind(notMix);
+
     // it's stack-locked, biased or neutral
     // TODO: optimize away redundant LDs of obj->mark and improve the markword triage
     // order to reduce the number of conditional branches in the most common cases.
@@ -2034,6 +2043,15 @@ void MacroAssembler::fast_unlock(Register objReg, Register boxReg, Register tmpR
     bind(DONE_LABEL);
   } else {
     Label DONE_LABEL, Stacked, CheckSucc;
+
+    Label notMix;
+    movptr(tmpReg, Address(objReg, 0));          // [FETCH]
+    andptr(tmpReg, markOopDesc::mixed_object_mask_in_place);
+    cmpptr(tmpReg, markOopDesc::mixed_object_value);
+    jcc(Assembler::notEqual, notMix);
+    cmpptr (rsp, (int32_t)NULL_WORD); // goto slow case
+    jmp(DONE_LABEL);
+    bind(notMix);
 
     // Critically, the biased locking test must have precedence over
     // and appear before the (box->dhw == 0) recursive stack-lock test.
