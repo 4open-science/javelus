@@ -534,10 +534,7 @@ BiasedLocking::Condition BiasedLocking::revoke_and_rebias(Handle obj, bool attem
   // update the heuristics because doing so may cause unwanted bulk
   // revocations (which are expensive) to occur.
   markOop mark = obj->mark();
-  if (mark->is_mixed_object()) {
-    obj = Handle(THREAD, (oop)mark->decode_phantom_object_pointer());
-    mark = obj->mark();
-  }
+  assert(!mark->is_mixed_object(), "not supported");
   if (mark->is_biased_anonymously() && !attempt_rebias) {
     // We are probably trying to revoke the bias of this object due to
     // an identity hash code computation. Try to revoke the bias
@@ -647,9 +644,7 @@ void BiasedLocking::revoke(GrowableArray<Handle>* objs) {
 void BiasedLocking::revoke_at_safepoint(Handle h_obj) {
   assert(SafepointSynchronize::is_at_safepoint(), "must only be called while at safepoint");
   oop obj = h_obj();
-  if (obj->mark()->is_mixed_object()) {
-    obj = (oop)obj->mark()->decode_phantom_object_pointer();
-  }
+  assert(!obj->mark()->is_mixed_object(), "not supported");
   HeuristicsResult heuristics = update_heuristics(obj, false);
   if (heuristics == HR_SINGLE_REVOKE) {
     revoke_bias(obj, false, false, NULL);

@@ -200,6 +200,7 @@ void ObjectSynchronizer::fast_exit(oop object, BasicLock* lock, TRAPS) {
      // Diagnostics -- Could be: stack-locked, inflating, inflated.
      mark = mark_holder->mark() ;
      assert (!mark->is_neutral(), "invariant") ;
+     assert(!mark->is_mixed_object(), "should decode mixed object first");
      if (mark->has_locker() && mark != markOopDesc::INFLATING()) {
         assert(THREAD->is_lock_owned((address)mark->locker()), "invariant") ;
      }
@@ -212,6 +213,7 @@ void ObjectSynchronizer::fast_exit(oop object, BasicLock* lock, TRAPS) {
   }
 
   mark = mark_holder->mark() ;
+  assert(!mark->is_mixed_object(), "should decode mixed object first");
 
   // If the object is stack-locked by the current thread, try to
   // swing the displaced header from the box back to the mark.
@@ -432,6 +434,7 @@ void ObjectSynchronizer::notify(Handle obj, TRAPS) {
     mark_holder = Handle(THREAD, (oop)mark->decode_phantom_object_pointer());
     mark = mark_holder->mark();
   }
+  assert(!mark->is_mixed_object(), "should decode mixed object first");
   if (mark->has_locker() && THREAD->is_lock_owned((address)mark->locker())) {
     return;
   }
@@ -451,6 +454,7 @@ void ObjectSynchronizer::notifyall(Handle obj, TRAPS) {
     mark_holder = Handle(THREAD, (oop)mark->decode_phantom_object_pointer());
     mark = mark_holder->mark();
   }
+  assert(!mark->is_mixed_object(), "should decode mixed object first");
   if (mark->has_locker() && THREAD->is_lock_owned((address)mark->locker())) {
     return;
   }
@@ -631,6 +635,7 @@ intptr_t ObjectSynchronizer::FastHashCode (Thread * Self, oop obj) {
     mark_holder = (oop) mark->decode_phantom_object_pointer();
     mark = ReadStableMark (mark_holder);
   }
+  assert(!mark->is_mixed_object(), "should decode mixed object first");
   if (UseBiasedLocking) {
     // NOTE: many places throughout the JVM do not expect a safepoint
     // to be taken here, in particular most operations on perm gen
@@ -721,11 +726,13 @@ intptr_t ObjectSynchronizer::FastHashCode (Thread * Self, oop obj) {
   // Load displaced header and check it has hash code
   mark = monitor->header();
   assert (mark->is_neutral(), "invariant") ;
+  assert (!mark->is_mixed_object(), "invariant") ;
   hash = mark->hash();
   if (hash == 0) {
     hash = get_next_hash(Self, obj);
     temp = mark->copy_set_hash(hash); // merge hash code into header
     assert (temp->is_neutral(), "invariant") ;
+    assert (!temp->is_mixed_object(), "invariant") ;
     test = (markOop) Atomic::cmpxchg_ptr(temp, monitor, mark);
     if (test != mark) {
       // The only update to the header in the monitor (outside GC)

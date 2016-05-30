@@ -709,10 +709,17 @@ void InterpreterMacroAssembler::lock_object(Register lock_reg) {
     movptr(obj_reg, Address(lock_reg, obj_offset));
 
     // Check whether swap_reg is mixed object
+    Label notMix;
+    assert_different_registers(swap_reg, obj_reg, lock_reg);
     movptr(swap_reg, Address(obj_reg, oopDesc::mark_offset_in_bytes()));
     andptr(swap_reg, markOopDesc::mixed_object_mask_in_place);
     cmpptr(swap_reg, markOopDesc::mixed_object_value);
-    jcc(Assembler::equal, slow_case);
+    jcc(Assembler::notEqual, notMix);
+    call_VM(noreg,
+            CAST_FROM_FN_PTR(address, InterpreterRuntime::monitorenter),
+            lock_reg);
+    jmp(done);
+    bind(notMix);
     /* end of mix support*/
 
     if (UseBiasedLocking) {
@@ -803,6 +810,7 @@ void InterpreterMacroAssembler::unlock_object(Register lock_reg) {
     movptr(obj_reg, Address(lock_reg, BasicObjectLock::obj_offset_in_bytes()));
 
     Label notMix;
+    assert_different_registers(swap_reg, obj_reg, lock_reg);
     movptr(swap_reg, Address(obj_reg, oopDesc::mark_offset_in_bytes()));
     andptr(swap_reg, markOopDesc::mixed_object_mask_in_place);
     cmpptr(swap_reg, markOopDesc::mixed_object_value);
