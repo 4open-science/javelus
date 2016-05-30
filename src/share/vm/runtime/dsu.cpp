@@ -310,7 +310,7 @@ bool DSUClass::require_old_version() const {
 }
 
 bool DSUClass::old_version_resolved() const{
-  return _old_version!=NULL;
+  return _old_version != NULL;
 }
 
 // only del class does not require a new version.
@@ -980,16 +980,17 @@ DSUError DSUClass::prepare(TRAPS) {
   InstanceKlass* old_version = NULL;
   ret = resolve_old_version(old_version, THREAD);
 
+  // a deleted class or a modified class has not been loaded
   if (ret == DSU_ERROR_OLD_CLASS_NOT_LOADED && IgnoreUnloadedOldClass) {
     return DSU_ERROR_NONE;
   }
 
-  if (ret != DSU_ERROR_NONE) {
-    //return ret;
-    return ret;
-  }
-
   if (updating_type() == DSU_CLASS_DEL) {
+    // cannot resolve old version, return with error
+    if (ret != DSU_ERROR_NONE) {
+      return ret;
+    }
+
     if (old_version != NULL) {
       set_restricted_methods();
       old_version->set_dsu_state(DSUState::dsu_will_be_deleted);
@@ -1001,23 +1002,30 @@ DSUError DSUClass::prepare(TRAPS) {
     return DSU_ERROR_NONE;
   }
 
+  // cannot resolve old version, return with error
+  if (ret != DSU_ERROR_NONE) {
+    return ret;
+  }
+
+  // Do not load added class eagerly
   if (IgnoreAddedClass && updating_type() == DSU_CLASS_ADD) {
-    // _prepared = true;
     return DSU_ERROR_NONE;
   }
 
   InstanceKlass* new_version = NULL;
   ret = resolve_new_version(new_version, THREAD);
 
-  if (ret != DSU_ERROR_NONE && IgnoreUnloadedAddedClass) {
-    return DSU_ERROR_NONE;
-  }
-
-  if (ret != DSU_ERROR_NONE) {
-    return ret;
-  }
-
   if (updating_type() == DSU_CLASS_ADD) {
+    // if a newly added class cannot be loaded, we still update and try to load it lazily.
+    if (ret != DSU_ERROR_NONE && IgnoreUnloadedAddedClass) {
+      return DSU_ERROR_NONE;
+    }
+
+    // we cannot load the new version, abort with error
+    if (ret != DSU_ERROR_NONE) {
+      return ret;
+    }
+
     if (new_version != NULL) {
       _prepared = true;
     } else {
@@ -1025,6 +1033,11 @@ DSUError DSUClass::prepare(TRAPS) {
       DSU_WARN(("An added class [%s] cannot be resolved.", this->name()->as_C_string()));
     }
     return DSU_ERROR_NONE;
+  }
+
+  // we cannot load the new version, abort with error
+  if (ret != DSU_ERROR_NONE) {
+    return ret;
   }
 
   assert(old_version != NULL, "old version should not be null.");
