@@ -4093,11 +4093,13 @@ DSUError DSUClassLoader::prepare(TRAPS) {
     DSUError ret = dsu_class->prepare(THREAD);
 
     if (ret != DSU_ERROR_NONE) {
+      ResourceMark rm(THREAD);
+      DSU_WARN(("Preparing class %s results in an error, code is %d", dsu_class->name()->as_C_string(), ret));
       return ret;
     }
 
     if (HAS_PENDING_EXCEPTION) {
-      return DSU_ERROR_PREPARE_DSUCLASS;;
+      return DSU_ERROR_PREPARE_DSUCLASS;
     }
   }
 
