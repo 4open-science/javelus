@@ -4305,8 +4305,6 @@ DSUError  DSUClassLoader::load_new_version(Symbol* name, InstanceKlass* &new_cla
   ClassLoaderData* loader_data = new_super->class_loader_data();
   Symbol* new_super_name = new_super->name();
 
-  assert(new_super->is_linked(), "sanity check");
-
   // Check DSUClass again
   DSUClassLoader* super_dsu_class_loader = dsu()->find_class_loader_by_loader(loader_data->class_loader());
   if (super_dsu_class_loader != NULL) {
