@@ -927,6 +927,9 @@ void Method::link_method_with_dsu_check(methodHandle h_method, TRAPS) {
 
   // ONLY USE the h_method now as make_adapter may have blocked
 
+  if (is_old() && this->_code != NULL) {
+    this->_code = NULL;
+  }
 }
 
 address Method::make_adapters(methodHandle mh, TRAPS) {
@@ -983,6 +986,8 @@ void Method::set_code(methodHandle mh, nmethod *code) {
   assert( code, "use clear_code to remove code" );
   assert( mh->check_code(), "" );
 
+  assert(!mh->is_old(), "should not be old");
+  assert(!code->method()->is_old(), "should not be old");
   guarantee(mh->adapter() != NULL, "Adapter blob must already exist!");
 
   // These writes must happen in this order, because the interpreter will
@@ -2038,7 +2043,7 @@ void Method::print_value_on(outputStream* st) const {
   name()->print_value_on(st);
   st->print(" ");
   signature()->print_value_on(st);
-  st->print(" in ");
+  st->print("%d in ", access_flags().as_int());
   method_holder()->print_value_on(st);
   if (WizardMode) st->print("#%d", _vtable_index);
   if (WizardMode) st->print("[%d,%d]", size_of_parameters(), max_locals());

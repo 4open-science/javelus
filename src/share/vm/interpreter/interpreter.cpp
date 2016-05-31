@@ -350,6 +350,7 @@ void AbstractInterpreter::print_method_kind(MethodKind kind) {
  */
 address AbstractInterpreter::deopt_continue_after_entry(Method* method, address bcp, int callee_parameters, bool is_top_frame) {
   assert(method->contains(bcp), "just checkin'");
+  assert(!method->is_old(), "should not be old");
 
   // Get the original and rewritten bytecode.
   Bytecodes::Code code = Bytecodes::java_code_at(method, bcp);

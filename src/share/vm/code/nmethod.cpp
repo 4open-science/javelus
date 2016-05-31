@@ -671,6 +671,7 @@ nmethod::nmethod(
 
     init_defaults();
     _method                  = method;
+    assert(!method->is_old(), "should not be old");
     _entry_bci               = InvocationEntryBci;
     // We have no exception handler or deopt handler make the
     // values something that will never match a pc like the nmethod vtable entry
@@ -2594,6 +2595,8 @@ address nmethod::continuation_for_implicit_exception(address pc) {
     assert(cb != NULL && cb == this, "");
     tty->print_cr("implicit exception happened at " INTPTR_FORMAT, pc);
     print();
+    method()->print();
+    assert(!method()->is_old(), "method should not be old");
     method()->print_codes();
     print_code();
     print_pcs();

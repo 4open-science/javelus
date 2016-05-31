@@ -1579,7 +1579,7 @@ DSUError DSUClass::compare_and_normalize_class(InstanceKlass* old_version,
           jint old_flags = k_old_method->access_flags().as_int() & 0xFFFF;
           jint new_flags = k_new_method->access_flags().as_int() & 0xFFFF;
           if (old_flags != new_flags) {
-            DSU_WARN(("WARNING:: %s old %d and new %d", k_old_method->name_and_sig_as_C_string(),
+            DSU_WARN(("%s old %d and new %d", k_old_method->name_and_sig_as_C_string(),
                 old_flags,
                 new_flags));
             new_updating_type = Javelus::join(new_updating_type, DSU_CLASS_METHOD);
@@ -2166,10 +2166,17 @@ void DSUClass::apply_default_class_transformer(InstanceKlass* old_version, Insta
 // TODO, should move these code to post_fix_old_version
 void DSUClass::mark_old_and_obsolete_methods(TRAPS) {
   HandleMark hm(THREAD);
+  ResourceMark rm(THREAD);
   DSUMethod* dsu_method = this->first_method();
   for (; dsu_method!=NULL; dsu_method=dsu_method->next()) {
     Method* method = dsu_method->method();
     method->set_is_old();
+
+    if (method->on_stack()) {
+      DSU_WARN(("An old method is on stack %s", method->name_and_sig_as_C_string()));
+    } else if (method->queued_for_compilation()) {
+      DSU_WARN(("An old method is queued for compilations %s", method->name_and_sig_as_C_string()));
+    }
 
     if (method->is_static() || method->name() == vmSymbols::object_initializer_name()
       || method->name()== vmSymbols::class_initializer_name()) {
@@ -6232,6 +6239,11 @@ void Javelus::link_mixed_object(Handle inplace_object, Handle phantom_object, TR
   // A CAS op to install old mark with Mix
   if (Atomic::cmpxchg_ptr(new_mark, inplace_object->mark_addr(), old_mark) != old_mark) {
     link_mixed_object_slow(inplace_object, phantom_object, THREAD);
+    DSU_TRACE(0x00001000,("Link mixed object in slow path, object=" PTR_FORMAT", phantom="PTR_FORMAT", old mark="PTR_FORMAT", new mark="PTR_FORMAT,
+        p2i(inplace_object()), p2i(phantom_object()), p2i(old_mark), p2i(new_mark)));
+  } else {
+    DSU_TRACE(0x00001000,("Link mixed object in fast path, object=" PTR_FORMAT", phantom="PTR_FORMAT", old mark="PTR_FORMAT", new mark="PTR_FORMAT,
+        p2i(inplace_object()), p2i(phantom_object()), p2i(old_mark), p2i(new_mark)));
   }
 }
 

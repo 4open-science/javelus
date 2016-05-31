@@ -190,6 +190,7 @@ void ObjectSynchronizer::fast_exit(oop object, BasicLock* lock, TRAPS) {
   oop mark_holder = object;
   if (mark->is_mixed_object()) {
     mark_holder = (oop) mark->decode_phantom_object_pointer();
+    assert(Universe::heap()->is_in_reserved(mark_holder), "must be live");
     mark = mark_holder->mark();
   }
   assert(!mark_holder->mark()->has_bias_pattern(), "should not see bias pattern here");
@@ -238,6 +239,7 @@ void ObjectSynchronizer::slow_enter(Handle obj, BasicLock* lock, TRAPS) {
   Handle mark_holder = obj;
   if (mark->is_mixed_object()) {
     mark_holder = Handle(THREAD, (oop)mark->decode_phantom_object_pointer());
+    assert(Universe::heap()->is_in_reserved(mark_holder()), "must be live");
     mark = mark_holder->mark();
   }
   assert(!mark->has_bias_pattern(), "should not see bias pattern here");
@@ -432,6 +434,7 @@ void ObjectSynchronizer::notify(Handle obj, TRAPS) {
   Handle mark_holder = obj;
   if (mark->is_mixed_object()) {
     mark_holder = Handle(THREAD, (oop)mark->decode_phantom_object_pointer());
+    assert(Universe::heap()->is_in_reserved(mark_holder()), "must be live");
     mark = mark_holder->mark();
   }
   assert(!mark->is_mixed_object(), "should decode mixed object first");
@@ -452,6 +455,7 @@ void ObjectSynchronizer::notifyall(Handle obj, TRAPS) {
   Handle mark_holder = obj;
   if (mark->is_mixed_object()) {
     mark_holder = Handle(THREAD, (oop)mark->decode_phantom_object_pointer());
+    assert(Universe::heap()->is_in_reserved(mark_holder()), "must be live");
     mark = mark_holder->mark();
   }
   assert(!mark->is_mixed_object(), "should decode mixed object first");
@@ -633,6 +637,7 @@ intptr_t ObjectSynchronizer::FastHashCode (Thread * Self, oop obj) {
   oop mark_holder = obj;
   if (mark->is_mixed_object()) {
     mark_holder = (oop) mark->decode_phantom_object_pointer();
+    assert(Universe::heap()->is_in_reserved(mark_holder), "must be live");
     mark = ReadStableMark (mark_holder);
   }
   assert(!mark->is_mixed_object(), "should decode mixed object first");
@@ -673,6 +678,7 @@ intptr_t ObjectSynchronizer::FastHashCode (Thread * Self, oop obj) {
   mark = ReadStableMark (obj);
   if (mark->is_mixed_object()) {
     mark_holder = (oop) mark->decode_phantom_object_pointer();
+    assert(Universe::heap()->is_in_reserved(mark_holder), "must be live");
     mark = ReadStableMark (mark_holder);
   }
   // object should remain ineligible for biased locking
@@ -768,6 +774,7 @@ bool ObjectSynchronizer::current_thread_holds_lock(JavaThread* thread,
   oop mark_holder = obj;
   if (mark->is_mixed_object()) {
     mark_holder = (oop) mark->decode_phantom_object_pointer();
+    assert(Universe::heap()->is_in_reserved(mark_holder), "must be live");
     mark = ReadStableMark(mark_holder);
   }
 
@@ -814,6 +821,7 @@ ObjectSynchronizer::LockOwnership ObjectSynchronizer::query_lock_ownership
   oop mark_holder = obj;
   if (mark->is_mixed_object()) {
     mark_holder = (oop) mark->decode_phantom_object_pointer();
+    assert(Universe::heap()->is_in_reserved(mark_holder), "must be live");
     mark = ReadStableMark(mark_holder);
   }
 
@@ -858,6 +866,7 @@ JavaThread* ObjectSynchronizer::get_lock_owner(Handle h_obj, bool doLock) {
   oop mark_holder = obj;
   if (mark->is_mixed_object()) {
     mark_holder = (oop) mark->decode_phantom_object_pointer();
+    assert(Universe::heap()->is_in_reserved(mark_holder), "must be live");
     mark = ReadStableMark(mark_holder);
   }
 
@@ -1244,6 +1253,7 @@ ObjectMonitor* ObjectSynchronizer::inflate_helper(oop obj) {
   oop mark_holder = obj;
   if (mark->is_mixed_object()) {
     mark_holder = (oop) mark->decode_phantom_object_pointer();
+    assert(Universe::heap()->is_in_reserved(mark_holder), "must be live");
     mark = mark_holder->mark();
   }
 
@@ -1284,9 +1294,11 @@ ObjectMonitor * ATTR ObjectSynchronizer::inflate (Thread * Self, oop object) {
       // CASE: mixed object
       if (mark->is_mixed_object()) {
         mark_holder = (oop) mark->decode_phantom_object_pointer();
+        assert(Universe::heap()->is_in_reserved(mark_holder), "must be live");
         continue;
       }
 
+      assert(mark_holder != NULL, "sanity check");
       assert(!mark->is_mixed_object(), "should decode mixed object first");
 
       // CASE: inflated
@@ -1508,6 +1520,7 @@ bool ObjectSynchronizer::deflate_monitor(ObjectMonitor* mid, oop obj,
   oop mark_holder = obj;
   if (obj->mark()->is_mixed_object()) {
     mark_holder = oop(obj->mark()->decode_phantom_object_pointer());
+    assert(Universe::heap()->is_in_reserved(mark_holder), "must be live");
   }
   // Normal case ... The monitor is associated with obj.
   guarantee (mark_holder->mark() == markOopDesc::encode(mid), "invariant") ;

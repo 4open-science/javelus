@@ -78,6 +78,8 @@ ciMethod::ciMethod(methodHandle h_m, ciInstanceKlass* holder) :
   _flags = ciFlags(h_m()->access_flags());
   _dsu_flags = ciDSUFlags(h_m()->dsu_flags());
 
+  assert((_flags.as_int() & JVM_ACC_IS_OLD) == 0, "should not be old method");
+
   // Easy to compute, so fill them in now.
   _max_stack          = h_m()->max_stack();
   _max_locals         = h_m()->max_locals();

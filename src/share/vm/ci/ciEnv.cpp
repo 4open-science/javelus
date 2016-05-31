@@ -1008,6 +1008,8 @@ void ciEnv::register_method(ciMethod* target,
       return;
     }
 
+    assert(!method->is_old(), "should not be old");
+
     assert(offsets->value(CodeOffsets::Deopt) != -1, "must have deopt entry");
     assert(offsets->value(CodeOffsets::Exceptions) != -1, "must have exception entry");
 

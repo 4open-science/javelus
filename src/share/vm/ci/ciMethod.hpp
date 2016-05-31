@@ -108,7 +108,7 @@ class ciMethod : public ciMetadata {
 
   void load_code();
 
-  void check_is_loaded() const                   { assert(is_loaded(), "not loaded"); }
+  void check_is_loaded() const                   { assert(is_loaded(), "not loaded"); assert(!get_Method()->is_old(), "should not be old");}
 
   bool ensure_method_data(methodHandle h_m);
 

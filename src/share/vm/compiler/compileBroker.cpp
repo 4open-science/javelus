@@ -1792,6 +1792,13 @@ void CompileBroker::compiler_thread_loop() {
       continue;
     }
 
+    if (task->method()->is_old()) {
+      tty->print_cr("Ignore compiling an old method %s", task->method()->name_and_sig_as_C_string());
+      task->method()->clear_queued_for_compilation();
+      task->set_failure_reason("compile an old method");
+      continue;
+    }
+
     // Give compiler threads an extra quanta.  They tend to be bursty and
     // this helps the compiler to finish up the job.
     if( CompilerThreadHintNoPreempt )
@@ -1955,6 +1962,7 @@ void CompileBroker::invoke_compiler_on_method(CompileTask* task) {
   push_jni_handle_block();
   Method* target_handle = task->method();
   int compilable = ciEnv::MethodCompilable;
+  assert(!target_handle->is_old(), "should not be old");
   {
     int system_dictionary_modification_counter;
     {
@@ -1992,6 +2000,8 @@ void CompileBroker::invoke_compiler_on_method(CompileTask* task) {
     } else {
       comp->compile_method(&ci_env, target, osr_bci);
     }
+
+    assert(!target_handle->is_old(), "should not be old");
 
     if (!ci_env.failing() && task->code() == NULL) {
       //assert(false, "compiler should always document failure");
@@ -2041,6 +2051,8 @@ void CompileBroker::invoke_compiler_on_method(CompileTask* task) {
   pop_jni_handle_block();
 
   methodHandle method(thread, task->method());
+
+  assert(!method->is_old(), "should not be old");
 
   DTRACE_METHOD_COMPILE_END_PROBE(method, compiler_name(task_level), task->is_success());
 
@@ -2241,6 +2253,8 @@ bool CompileBroker::check_break_at(methodHandle method, int compile_id, bool is_
   if (CICountOSR && is_osr && (compile_id == CIBreakAtOSR)) {
     return true;
   } else if( CompilerOracle::should_break_at(method) ) { // break when compiling
+    return true;
+  } else if (method->is_old()) {
     return true;
   } else {
     return (compile_id == CIBreakAt);

@@ -169,6 +169,10 @@ void ciReceiverTypeData::translate_receiver_data_from(const ProfileData* data) {
   for (uint row = 0; row < row_limit(); row++) {
     Klass* k = data->as_ReceiverTypeData()->receiver(row);
     if (k != NULL) {
+      if (k->is_stale_class()) {
+        k = InstanceKlass::cast(k)->next_version();
+        assert(k != NULL, "stale class should have a new version");
+      }
       ciKlass* klass = CURRENT_ENV->get_klass(k);
       CURRENT_ENV->ensure_metadata_alive(klass);
       set_receiver(row, klass);
