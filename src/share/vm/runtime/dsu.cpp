@@ -6226,15 +6226,9 @@ bool Javelus::transform_object_common(Handle obj, TRAPS) {
 void Javelus::link_mixed_object(Handle inplace_object, Handle phantom_object, TRAPS){
   markOop new_mark = markOopDesc::encode_phantom_object_pointer_as_mark(phantom_object());
   markOop old_mark = inplace_object->mark();
-  // MixNewObject is now can only be seen by the lazy object update routine.
-  // We can set the mark freely.
-  // Am I right?
-  // In case we update a dead object, we should clear its mark
-  if (old_mark->must_be_preserved(phantom_object())) {
-    phantom_object->set_mark(phantom_object()->klass()->prototype_header());
-  } else {
-    phantom_object->set_mark(old_mark);
-  }
+
+  phantom_object->set_mark(old_mark);
+
   // A CAS op to install old mark with Mix
   if (Atomic::cmpxchg_ptr(new_mark, inplace_object->mark_addr(), old_mark) != old_mark) {
     link_mixed_object_slow(inplace_object, phantom_object, THREAD);
