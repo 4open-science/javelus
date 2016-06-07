@@ -682,7 +682,7 @@ Node* GraphKit::do_stale_object_check(Node* recv, bool check_mixed_object) {
   Node * call = make_runtime_call(RC_NO_LEAF,
     OptoRuntime::update_stale_object_Type(),
     OptoRuntime::update_stale_object_Java(),
-    "invalid object check",
+    NULL, // "invalid object check",
     TypePtr::BOTTOM,
     recv);
 
