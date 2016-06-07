@@ -165,7 +165,7 @@ void ConstantPoolCacheEntry::set_parameter_size(int value) {
     Atomic::cmpxchg_ptr((value & parameter_size_mask), &_flags, 0);
   }
   guarantee(parameter_size() == value,
-            err_msg("size must not change: parameter_size=%d, value=%d", parameter_size(), value));
+            err_msg("size must not change: parameter_size=%d, value=%d, flags=%d", parameter_size(), value, _flags));
 }
 
 void ConstantPoolCacheEntry::set_direct_or_vtable_call(Bytecodes::Code invoke_code,

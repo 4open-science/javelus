@@ -106,6 +106,7 @@ ciEnv::ciEnv(CompileTask* task, int system_dictionary_modification_counter)
 #endif /* !PRODUCT */
 
   _system_dictionary_modification_counter = system_dictionary_modification_counter;
+  _system_revision_number = Javelus::system_revision_number();
   _num_inlined_bytecodes = 0;
   assert(task == NULL || thread->task() == task, "sanity");
   _task = task;
@@ -162,6 +163,7 @@ ciEnv::ciEnv(Arena* arena) : _ciEnv_arena(mtCompiler) {
 #endif /* !PRODUCT */
 
   _system_dictionary_modification_counter = 0;
+  _system_revision_number = 0;
   _num_inlined_bytecodes = 0;
   _task = NULL;
   _log = NULL;
@@ -860,6 +862,11 @@ bool ciEnv::system_dictionary_modification_counter_changed() {
   return _system_dictionary_modification_counter != SystemDictionary::number_of_modifications();
 }
 
+
+bool ciEnv::system_revision_number_changed() {
+  return _system_revision_number != Javelus::system_revision_number();
+}
+
 // ------------------------------------------------------------------
 // ciEnv::validate_compile_task_dependencies
 //
@@ -878,6 +885,11 @@ void ciEnv::validate_compile_task_dependencies(ciMethod* target) {
       record_failure("invalid non-klass dependency");
       return;
     }
+  }
+
+  if (system_revision_number_changed()) {
+    record_failure("DSU happened");
+    return;
   }
 
   // Klass dependencies must be checked when the system dictionary

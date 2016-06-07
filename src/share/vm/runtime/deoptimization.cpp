@@ -1039,7 +1039,13 @@ vframeArray* Deoptimization::create_vframeArray(JavaThread* thread, frame fr, Re
       }
     }
   }
+  for (int index = 0; index < chunk->length(); index++) {
+    compiledVFrame* vf = chunk->at(index);
+    assert(!vf->method()->is_old(), "should not be old");
+  }
 #endif
+
+
 
   // Register map for next frame (used for stack crawl).  We capture
   // the state of the deopt'ing frame's caller.  Thus if we need to

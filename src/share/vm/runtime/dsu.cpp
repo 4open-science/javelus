@@ -511,6 +511,7 @@ void DSUClass::set_check_flags_for_methods(InstanceKlass* old_version,
 // The ycsc is just ycmc.
 void DSUClass::compute_youngest_common_super_class(InstanceKlass* old_version, InstanceKlass* new_version,
   InstanceKlass* &old_ycsc, InstanceKlass* &new_ycsc, TRAPS) {
+  ResourceMark rm(THREAD);
   old_ycsc = old_version->superklass();
 
   while(old_ycsc != NULL) {
@@ -546,6 +547,7 @@ void DSUClass::compute_youngest_common_super_class(InstanceKlass* old_version, I
 
     if (old_super != old_ycsc) {
       // one super type has missed, the class must be type narrowed.
+      DSU_WARN(("Set a type narrowed class %s", new_version->name()->as_C_string()));
       new_version->set_is_type_narrowed_class();
     }
 
@@ -560,6 +562,7 @@ void DSUClass::compute_youngest_common_super_class(InstanceKlass* old_version, I
     while(new_super != new_ycsc) {
       new_super->set_is_super_type_of_stale_class();
       if (new_ycsc->is_type_narrowed_class()) {
+        DSU_WARN(("Set a type narrowed class %s", new_super->name()->as_C_string()));
         new_super->set_is_type_narrowed_class();
       }
       new_super = new_super->superklass();
@@ -633,6 +636,7 @@ void DSUClass::compute_interfaces_information(InstanceKlass* old_version,
       }
       if (old_itfc->name() == new_itfc->name()) {
         // updated interface
+        DSU_WARN(("Set a type narrowed class %s", new_itfc->name()->as_C_string()));
         new_itfc->set_is_type_narrowed_class();
         new_states[j] = match_interface;
         count--;
@@ -652,6 +656,7 @@ void DSUClass::compute_interfaces_information(InstanceKlass* old_version,
         old_itfc->set_is_super_type_of_stale_class();
       }
       // anyway, we have to set the new class as type narrowed class
+      DSU_WARN(("Set a type narrowed class %s", new_version->name()->as_C_string()));
       new_version->set_is_type_narrowed_class();
     }
   }
@@ -3326,6 +3331,7 @@ void mark_single_class(DSUClass * dsu_class, TRAPS) {
             // ikh is only reachable by following beta edge.
             all_ikh->set_is_type_narrowing_relevant_type();
             // TODO we should to set flags for type narrowing checking.
+            DSU_WARN(("Set a type narrowed class %s", new_version->name()->as_C_string()));
             new_version->set_is_type_narrowed_class();
           //}
         }

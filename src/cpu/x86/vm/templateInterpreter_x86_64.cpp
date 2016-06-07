@@ -1558,38 +1558,48 @@ address InterpreterGenerator::generate_dsu_method_entry(AbstractInterpreter::Met
   // Here caller can only be interpreted frame.
   __ jcc(Assembler::zero, no_update);// not a stale class, skip update.
 
-  // save sender sp, because the c2i entry may ..
-  __ restore_bcp();                              // rsi points to call/send
+  Label not_c2i;
+  // load last sp
+  __ lea(rax, Address(rsp, wordSize));
+  __ cmpptr(rax, r13); // if we come from c2i, rax should not be equal with r13
+  __ jcc(Assembler::equal, not_c2i);
+
+  __ stop("we come to interpreter from c2i");
+
+  __ bind(not_c2i);
+
+  // r13 now points to senderSP
+  // restore it
+  __ restore_bcp();
   __ restore_locals();
 
   // Caller can only be interpreted frame.
-  // clear last_java_sp
   __ movptr(Address(rbp, frame::interpreter_frame_last_sp_offset * wordSize), NULL_WORD);
-
-  // save rbx: methodOop
-  __ get_thread(rax);
-  __ movptr(Address(rax, JavaThread::vm_result_2_offset()), NULL_WORD);
+  __ movptr(Address(r15_thread, JavaThread::vm_result_2_offset()), NULL_WORD);
 
   __ call_VM(noreg, CAST_FROM_FN_PTR(address, InterpreterRuntime::update_stale_object_and_reresolve_method), rcx);
 
-  Label not_null;
+  Label not_null, not_updated;
   // XXX Should we update rbx?
-  __ get_thread(rax);
-  __ movptr(rdx, Address(rax, JavaThread::vm_result_2_offset()));
+  __ movptr(rdx, Address(r15_thread, JavaThread::vm_result_2_offset()));
+  __ movptr(Address(r15_thread, JavaThread::vm_result_2_offset()), NULL_WORD);
+
   __ testptr(rdx, rdx);
   __ jcc(Assembler::notZero, not_null);
-
   __ stop("Reresolving new method failed at dsu method entry");
-
   __ bind(not_null);
+
+  __ cmpptr(rbx, rdx);
+  __ jcc(Assembler::equal, not_updated);
+  __ stop("Reresolving new method failed with different method at dsu method entry");
+  __ bind(not_updated);
 
   // update methodOop
   __ movptr(rbx, rdx);
-  __ movptr(Address(rax, JavaThread::vm_result_2_offset()), NULL_WORD);
 
-  // save sender sp
-  __ bind(no_update);
+  // we can safely prepare to jump as we come from interpreter
   __ prepare_to_jump_from_interpreted();
+  __ bind(no_update);
 
   // non-mix entry must be generated before this.
   switch (kind) {

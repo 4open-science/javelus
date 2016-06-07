@@ -870,6 +870,8 @@ class ClassHierarchyWalker {
 
   void add_participant(Klass* participant) {
     assert(_num_participants + _record_witnesses < PARTICIPANT_LIMIT, "oob");
+    assert(!participant->is_inplace_new_class(), "sanity check");
+    assert(!participant->is_stale_class(), "sanity check");
     int np = _num_participants++;
     _participants[np] = participant;
     _participants[np+1] = NULL;

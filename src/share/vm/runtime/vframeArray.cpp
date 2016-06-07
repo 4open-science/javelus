@@ -172,7 +172,7 @@ void vframeArrayElement::unpack_on_stack(int caller_actual_parameters,
                                          bool do_return_barrier,
                                          int exec_mode) {
   JavaThread* thread = (JavaThread*) Thread::current();
-
+  assert(!method()->is_old(), "sanity check");
   // Look at bci and decide on bcp and continuation pc
   address bcp;
   // C++ interpreter doesn't need a pc since it will figure out what to do when it

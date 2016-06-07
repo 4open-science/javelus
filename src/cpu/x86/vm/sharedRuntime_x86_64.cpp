@@ -702,7 +702,6 @@ static void gen_i2c_adapter(MacroAssembler *masm,
 
       // Here caller can only be interpreted frame.
       __ jcc(Assembler::zero, no_check);// not a stale class, skip update.
-
       __ jump(RuntimeAddress(SharedRuntime::get_update_stale_object_and_reresolve_method_stub()));
     }
     __ bind(no_check);

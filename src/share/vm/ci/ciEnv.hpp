@@ -50,6 +50,7 @@ private:
   Arena*           _arena;       // Alias for _ciEnv_arena except in init_shared_objects()
   Arena            _ciEnv_arena;
   int              _system_dictionary_modification_counter;
+  int              _system_revision_number;
   ciObjectFactory* _factory;
   OopRecorder*     _oop_recorder;
   DebugInformationRecorder* _debug_info;
@@ -447,6 +448,7 @@ public:
 
   // Check for changes to the system dictionary during compilation
   bool system_dictionary_modification_counter_changed();
+  bool system_revision_number_changed();
 
   void record_failure(const char* reason);
   void record_method_not_compilable(const char* reason, bool all_tiers = true);

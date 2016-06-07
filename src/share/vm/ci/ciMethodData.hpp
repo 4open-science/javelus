@@ -69,6 +69,10 @@ protected:
   static intptr_t translate_klass(intptr_t k) {
     Klass* v = TypeEntries::valid_klass(k);
     if (v != NULL) {
+      if (v->is_stale_class() || v->is_inplace_new_class()) {
+        v = InstanceKlass::cast(v)->next_version();
+        assert(v != NULL, "a stale class or an in-place class should have a next version.");
+      }
       ciKlass* klass = CURRENT_ENV->get_klass(v);
       CURRENT_ENV->ensure_metadata_alive(klass);
       return with_status(klass, k);

@@ -764,6 +764,7 @@ IRT_ENTRY(void, InterpreterRuntime::update_stale_object_and_reresolve_method(Jav
 
   // check if link resolution caused cpCache to be updated
   if (already_resolved(thread)) {
+    assert(cache_entry(thread)->parameter_size() == info.selected_method()->size_of_parameters(), "sanity check");
     thread->set_vm_result_2(info.selected_method()());
     return;
   }
@@ -866,8 +867,12 @@ IRT_ENTRY(void, InterpreterRuntime::resolve_invoke(JavaThread* thread, Bytecodes
     }
   } // end JvmtiHideSingleStepping
 
+  assert(!info.selected_method()->is_old(), "should not be old");
   // check if link resolution caused cpCache to be updated
-  if (already_resolved(thread)) return;
+  if (already_resolved(thread)) {
+    assert(cache_entry(thread)->parameter_size() == info.selected_method()->size_of_parameters(), "sanity check");
+    return;
+  }
 
   if (bytecode == Bytecodes::_invokeinterface) {
     if (TraceItables && Verbose) {

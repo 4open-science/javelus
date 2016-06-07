@@ -98,6 +98,10 @@ void CallInfo::set_common(KlassHandle resolved_klass,
                           CallKind kind,
                           int index,
                           TRAPS) {
+  assert(!resolved_klass->is_stale_class(), "should not be stale class");
+  assert(!selected_klass->is_stale_class(), "should not be stale class");
+  assert(!resolved_method->is_old(), "should not be old");
+  assert(!selected_method->is_old(), "should not be old");
   assert(resolved_method->signature() == selected_method->signature(), "signatures must correspond");
   _resolved_klass  = resolved_klass;
   _selected_klass  = selected_klass;

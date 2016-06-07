@@ -3145,6 +3145,7 @@ void InstanceKlass::print_on(outputStream* st) const {
   st->print(BULLET"instance size:     %d", size_helper());                        st->cr();
   st->print(BULLET"klass size:        %d", size());                               st->cr();
   st->print(BULLET"access:            "); access_flags().print_on(st);            st->cr();
+  st->print(BULLET"dsu_flags:         %d", dsu_flags().as_int());                 st->cr();
   st->print(BULLET"state:             "); st->print_cr("%s", state_names[_init_state]);
   st->print(BULLET"life:              [%d,%d)", born_rn(), dead_rn());            st->cr();
   st->print(BULLET"name:              "); name()->print_value_on(st);             st->cr();

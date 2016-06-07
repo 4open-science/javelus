@@ -106,13 +106,13 @@ UncommonTrapBlob*   SharedRuntime::_uncommon_trap_blob;
 
 //----------------------------generate_stubs-----------------------------------
 void SharedRuntime::generate_stubs() {
-  _update_stale_object_and_reresolve_method_blob = generate_resolve_blob(CAST_FROM_FN_PTR(address, SharedRuntime::update_stale_object_and_reresolve_method),          "update_stale_object_and_reresolve_method_stub");
   _wrong_method_blob                   = generate_resolve_blob(CAST_FROM_FN_PTR(address, SharedRuntime::handle_wrong_method),          "wrong_method_stub");
   _wrong_method_abstract_blob          = generate_resolve_blob(CAST_FROM_FN_PTR(address, SharedRuntime::handle_wrong_method_abstract), "wrong_method_abstract_stub");
   _ic_miss_blob                        = generate_resolve_blob(CAST_FROM_FN_PTR(address, SharedRuntime::handle_wrong_method_ic_miss),  "ic_miss_stub");
   _resolve_opt_virtual_call_blob       = generate_resolve_blob(CAST_FROM_FN_PTR(address, SharedRuntime::resolve_opt_virtual_call_C),   "resolve_opt_virtual_call");
   _resolve_virtual_call_blob           = generate_resolve_blob(CAST_FROM_FN_PTR(address, SharedRuntime::resolve_virtual_call_C),       "resolve_virtual_call");
   _resolve_static_call_blob            = generate_resolve_blob(CAST_FROM_FN_PTR(address, SharedRuntime::resolve_static_call_C),        "resolve_static_call");
+  _update_stale_object_and_reresolve_method_blob = generate_resolve_blob(CAST_FROM_FN_PTR(address, SharedRuntime::update_stale_object_and_reresolve_method),          "update_stale_object_and_reresolve_method_stub");
 
 #ifdef COMPILER2
   // Vectors are generated only by C2.
@@ -1173,6 +1173,7 @@ methodHandle SharedRuntime::find_callee_method(JavaThread* thread, TRAPS) {
     callee_method = callinfo.selected_method();
   }
   assert(callee_method()->is_method(), "must be");
+  assert(!callee_method->is_old(), "should not be old");
   return callee_method;
 }
 
@@ -1231,6 +1232,8 @@ methodHandle SharedRuntime::resolve_sub_helper(JavaThread *thread,
   Handle receiver = find_callee_info(thread, invoke_code,
                                      call_info, CHECK_(methodHandle()));
   methodHandle callee_method = call_info.selected_method();
+
+  assert(!callee_method->is_old(), "should not be old");
 
   assert((!is_virtual && invoke_code == Bytecodes::_invokestatic ) ||
          (!is_virtual && invoke_code == Bytecodes::_invokehandle ) ||
@@ -1291,6 +1294,7 @@ methodHandle SharedRuntime::resolve_sub_helper(JavaThread *thread,
     assert(receiver.not_null() || invoke_code == Bytecodes::_invokehandle, "sanity check");
     bool static_bound = call_info.resolved_method()->can_be_statically_bound();
     KlassHandle h_klass(THREAD, invoke_code == Bytecodes::_invokehandle ? NULL : receiver->klass());
+    assert(!h_klass->is_stale_class(), "should not be stale class");
     CompiledIC::compute_monomorphic_entry(callee_method, h_klass,
                      is_optimized, static_bound, virtual_call_info,
                      CHECK_(methodHandle()));
@@ -1341,10 +1345,44 @@ methodHandle SharedRuntime::resolve_sub_helper(JavaThread *thread,
 
 
 JRT_BLOCK_ENTRY(address, SharedRuntime::update_stale_object_and_reresolve_method(JavaThread* thread))
+  RegisterMap reg_map(thread, false);
+  frame stub_frame = thread->last_frame();
+  assert(stub_frame.is_runtime_frame(), "sanity check");
+  frame caller_frame = stub_frame.sender(&reg_map);
+  assert(caller_frame.is_interpreted_frame(), "caller must be interpreted frame");
+
   // caller may be i2c
   methodHandle callee_method;
   JRT_BLOCK
-    callee_method = SharedRuntime::handle_ic_miss_helper(thread, CHECK_NULL);
+    ResourceMark rm(thread);
+    methodHandle caller_method (thread, caller_frame.interpreter_frame_method());
+    int bci = caller_frame.interpreter_frame_bci();
+    Bytecode_invoke call(caller_method, bci);
+    Bytecodes::Code bytecode = call.java_code();
+    assert(bytecode == Bytecodes::_invokevirtual || bytecode == Bytecodes::_invokeinterface || bytecode == Bytecodes::_invokespecial, "sanity check");
+    Symbol* signature = call.signature();
+    Handle receiver = Handle(thread,
+                    caller_frame.interpreter_callee_receiver(signature));
+    assert(Universe::heap()->is_in_reserved_or_null(receiver()),
+           "sanity check");
+    assert(receiver.is_null() ||
+           !Universe::heap()->is_in_reserved(receiver->klass()),
+             "sanity check");
+
+    if (receiver.is_null()) {
+      THROW_NULL(vmSymbols::java_lang_NullPointerException());
+    }
+
+    if (receiver->is_instance()) {
+      Javelus::transform_object_common(receiver, CHECK_NULL);
+    }
+
+    CallInfo info;
+    constantPoolHandle pool(thread, caller_method->constants());
+    int cpcache_index = call.get_index_u2_cpcache(bytecode);
+    LinkResolver::resolve_invoke(info, receiver, pool, cpcache_index, bytecode, CHECK_NULL);
+
+    callee_method = info.selected_method();
     // Return Method* through TLS
     thread->set_vm_result_2(callee_method());
   JRT_BLOCK_END
@@ -1491,10 +1529,12 @@ methodHandle SharedRuntime::handle_ic_miss_helper(JavaThread *thread, TRAPS) {
       tty->print_cr(" from pc: " INTPTR_FORMAT, caller_frame.pc());
       tty->print_cr(" code: " INTPTR_FORMAT, callee_method->code());
     }
+    assert(!callee_method->is_old(), "should not be old");
     return callee_method;
   }
 
   methodHandle callee_method = call_info.selected_method();
+  assert(!callee_method->is_old(), "should not be old");
 
   bool should_be_mono = false;
 
@@ -1687,6 +1727,7 @@ methodHandle SharedRuntime::reresolve_call_site(JavaThread *thread, TRAPS) {
 
   methodHandle callee_method = find_callee_method(thread, CHECK_(methodHandle()));
 
+  assert(!callee_method->is_old(), "should not be old");
 
 #ifndef PRODUCT
   Atomic::inc(&_wrong_method_ctr);

@@ -54,6 +54,7 @@ ciInstanceKlass::ciInstanceKlass(KlassHandle h_k) :
   _flags = ciFlags(access_flags);
   _dsu_flags = ciDSUFlags(ik->dsu_flags());
   assert(!_dsu_flags.is_stale_class(), "should not be stale class");
+  assert(!_dsu_flags.is_inplace_new_class(), "should not be stale class");
   _has_finalizer = access_flags.has_finalizer();
   _has_subklass = ik->subklass() != NULL;
   _init_state = ik->init_state();

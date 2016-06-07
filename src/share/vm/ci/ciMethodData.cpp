@@ -169,7 +169,7 @@ void ciReceiverTypeData::translate_receiver_data_from(const ProfileData* data) {
   for (uint row = 0; row < row_limit(); row++) {
     Klass* k = data->as_ReceiverTypeData()->receiver(row);
     if (k != NULL) {
-      if (k->is_stale_class()) {
+      if (k->is_stale_class() || k->is_inplace_new_class()) {
         k = InstanceKlass::cast(k)->next_version();
         assert(k != NULL, "stale class should have a new version");
       }
@@ -195,6 +195,7 @@ void ciReturnTypeEntry::translate_type_data_from(const ReturnTypeEntry* ret) {
 
 void ciSpeculativeTrapData::translate_from(const ProfileData* data) {
   Method* m = data->as_SpeculativeTrapData()->method();
+  assert(m != NULL && !m->is_old(), "should not be null or old");
   ciMethod* ci_m = CURRENT_ENV->get_method(m);
   CURRENT_ENV->ensure_metadata_alive(ci_m);
   set_method(ci_m);
