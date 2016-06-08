@@ -1886,7 +1886,7 @@ void DSUClass::swap_class(TRAPS) {
   //new_version->set_java_mirror(old_version->java_mirror());
 
   // as we swap the methods, we should update the vtable and itable accordingly
-  update_subklass_vtable_and_itable(old_version,THREAD);
+  update_subklass_vtable_and_itable(old_version, THREAD);
 
   {// update java mirror
     oop old_java_mirror = old_version->java_mirror();
@@ -1901,10 +1901,59 @@ void DSUClass::swap_class(TRAPS) {
 #endif
 }
 
-void DSUClass::update_subklass_vtable_and_itable(InstanceKlass* old_version, TRAPS) {
+
+void DSUClass::check_and_update_swapped_super_classes(InstanceKlass* this_class) {
+  InstanceKlass* super_klass = InstanceKlass::cast(this_class->super());
+
+  // update super
+  if (super_klass->dsu_has_been_swapped()) {
+    InstanceKlass* new_super_klass = super_klass->next_version();
+    assert(new_super_klass != NULL, "sanity check");
+    this_class->set_super(new_super_klass);
+  }
+
+  // update primary supers
+  Klass** primary_supers = &this_class->_primary_supers[0];
+  for (juint i = 0; i < Klass::primary_super_limit(); i++) {
+    if (primary_supers[i] != NULL) {
+      InstanceKlass* primary_super = InstanceKlass::cast(primary_supers[i]);
+      if (primary_super->dsu_has_been_swapped()) {
+        primary_supers[i] = primary_super->next_version();
+        assert(primary_supers[i] != NULL, "sanity check");
+      }
+    }
+  }
+
+  // update secondary supers
+  InstanceKlass* second_super = (InstanceKlass*)this_class->_secondary_super_cache;
+  if (second_super != NULL && second_super->dsu_has_been_swapped()) {
+    assert(second_super != NULL, "sanity check");
+    this_class->_secondary_super_cache = second_super->next_version();
+  }
+
+  // second supers
+  Array<Klass*>* secondary_supers = this_class->secondary_supers();
+  if (secondary_supers != NULL) {
+    int length = secondary_supers->length();
+    for (int i = 0; i < length; i++) {
+      Klass* ss = secondary_supers->at(i);
+      if (ss != NULL && ss->oop_is_instance()) {
+        InstanceKlass* iss = InstanceKlass::cast(ss);
+        if (iss->dsu_has_been_swapped()) {
+          iss = iss->next_version();
+          assert(iss != NULL, "sanity check");
+          secondary_supers->at_put(i, iss);
+        }
+      }
+    }
+  }
+}
+
+// should also update super class
+void DSUClass::update_subklass_vtable_and_itable(InstanceKlass* this_class, TRAPS) {
   HandleMark hm(THREAD);
   ResourceMark rm(THREAD);
-  InstanceKlass* subklass = (InstanceKlass*)(old_version->subklass());
+  InstanceKlass* subklass = (InstanceKlass*)(this_class->subklass());
   while(subklass != NULL) {
     if (!(subklass->dsu_will_be_redefined() || subklass->dsu_will_be_swapped())) {
       {
@@ -1914,7 +1963,7 @@ void DSUClass::update_subklass_vtable_and_itable(InstanceKlass* old_version, TRA
         subklass->itable()->initialize_itable(false, THREAD);
         assert(!HAS_PENDING_EXCEPTION || (THREAD->pending_exception()->is_a(SystemDictionary::ThreadDeath_klass())), "redefine exception");
       }
-      update_subklass_vtable_and_itable(subklass,THREAD);
+      update_subklass_vtable_and_itable(subklass, THREAD);
     }
     subklass = (InstanceKlass*)subklass->next_sibling();
   }
@@ -2344,6 +2393,8 @@ void DSUClass::post_fix_new_version(InstanceKlass* old_version,
     assert(this->new_inplace_new_class() == NULL, "must not be mixed object");
     assert(new_version->size_helper() == old_version->size_helper(), "must be equal");
   }
+
+  check_and_update_swapped_super_classes(new_version);
 }
 
 void DSUClass::post_fix_new_inplace_new_class(InstanceKlass* old_version,
@@ -2381,10 +2432,13 @@ void DSUClass::post_fix_new_inplace_new_class(InstanceKlass* old_version,
   // XXX hack on type system of JVM
   new_inplace_new_class->set_super(NULL);
   new_inplace_new_class->set_secondary_supers(NULL);
+  new_inplace_new_class->set_secondary_super_cache(NULL);
+  new_inplace_new_class->set_super_check_offset(in_bytes(Klass::primary_supers_offset()));
   new_inplace_new_class->initialize_supers(new_version, THREAD);
 
   if (HAS_PENDING_EXCEPTION) {
-    tty->print_cr("[DSU] Initialize super error for mix class.");
+    DSU_WARN(("Initialize super error for mix class."));
+    return;
   }
 
   new_inplace_new_class->set_is_inplace_new_class();
@@ -2396,8 +2450,7 @@ void DSUClass::post_fix_new_inplace_new_class(InstanceKlass* old_version,
 }
 
 void DSUClass::post_fix_stale_new_class(InstanceKlass* old_version,
-  InstanceKlass* new_version,
-  TRAPS) {
+  InstanceKlass* new_version, TRAPS) {
   HandleMark   hm(THREAD);
   ResourceMark rm(THREAD);
 
@@ -2428,13 +2481,16 @@ void DSUClass::post_fix_stale_new_class(InstanceKlass* old_version,
   // TODO stale new does not has a next version
   old_version->set_stale_new_class(stale_new_class);
   stale_new_class->set_previous_version(old_version);
- // This will cause stale object check
+
+  // This will cause stale object check
   stale_new_class->set_is_stale_class();
   stale_new_class->set_dead_rn(this->to_rn());
 
   // Make type checking happy.
   stale_new_class->set_super(NULL);
   stale_new_class->set_secondary_supers(NULL);
+  stale_new_class->set_secondary_super_cache(NULL);
+  stale_new_class->set_super_check_offset(in_bytes(Klass::primary_supers_offset()));
   stale_new_class->initialize_supers(new_version, CHECK);
 }
 
@@ -2504,6 +2560,8 @@ void DSUClass::define_class(TRAPS) {
   if (new_version == NULL) {
     return;
   }
+
+  check_and_update_swapped_super_classes(new_version);
   SystemDictionary::redefine_instance_class(old_version, new_version, CHECK);
 }
 

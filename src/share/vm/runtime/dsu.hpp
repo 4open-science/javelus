@@ -486,6 +486,8 @@ public:
     InstanceKlass* new_version,
     TRAPS);
 
+  static void check_and_update_swapped_super_classes(InstanceKlass* this_class);
+
   // copy from jvmtiRedefineClasses
   void update_jmethod_ids(InstanceKlass* new_version, TRAPS);
   void mark_old_and_obsolete_methods(TRAPS);
