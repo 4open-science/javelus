@@ -3034,7 +3034,9 @@ void DSU::update_changed_reflect_field(oop old_reflection) {
     ShouldNotReachHere();
     return;
   }
-
+  if (new_reflection == NULL) {
+    return;
+  }
   assert(new_reflection != NULL, "should not be null");
   update_changed_reflect_field(old_reflection, new_reflection);
 }
@@ -3053,6 +3055,9 @@ void DSU::update_changed_reflect_method(oop old_reflection) {
     return;
   }
 
+  if (new_reflection == NULL) {
+    return;
+  }
   assert(new_reflection != NULL, "should not be null");
   update_changed_reflect_method(old_reflection, new_reflection);
 }
@@ -3072,6 +3077,9 @@ void DSU::update_changed_reflect_constructor(oop old_reflection) {
     return;
   }
 
+  if (new_reflection == NULL) {
+    return;
+  }
   assert(new_reflection != NULL, "should not be null");
   update_changed_reflect_constructor(old_reflection, new_reflection);
 }
@@ -3109,6 +3117,8 @@ void DSU::update_changed_reflect_field(oop old_reflection, oop new_reflection) {
 }
 
 void DSU::update_changed_reflect_method(oop old_reflection, oop new_reflection) {
+  assert(old_reflection != NULL && new_reflection != NULL, "sanity check");
+  assert(old_reflection->klass() == new_reflection->klass(), "sanity check");
   InstanceKlass* ik = InstanceKlass::cast(old_reflection->klass());
 
   oop root = java_lang_reflect_Method::root(old_reflection);
