@@ -46,7 +46,8 @@ void ConstantPoolCacheEntry::reset_entry(){
   _indices = (_indices & 0x0000FFFF);
   _f1 = NULL;
   _f2 = 0;
-  _flags &= ~parameter_size_mask;
+  // leave parameter size
+  _flags &= parameter_size_mask;
 }
 
 bool ConstantPoolCacheEntry::adjust_entry_klass(Klass* old_holder, Klass* new_holder) {
@@ -721,5 +722,7 @@ void ConstantPoolCache::copy_method_entry(ConstantPoolCache* from_cache, int fro
   const int constant_pool_index = to_entry->constant_pool_index();
   memcpy((void*)(from_entry), (void*)(to_entry), sizeof(ConstantPoolCacheEntry));
   to_entry->initialize_entry(constant_pool_index);
-  to_entry->reset_entry();
+  int ps = from_entry->parameter_size();
+  // to_entry->reset_entry();
+  to_entry->set_parameter_size(ps);
 }

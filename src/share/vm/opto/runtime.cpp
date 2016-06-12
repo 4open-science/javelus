@@ -459,6 +459,10 @@ const TypeFunc *OptoRuntime::new_instance_Type() {
 JRT_BLOCK_ENTRY(void, OptoRuntime::update_stale_object_C(oopDesc* recv, JavaThread* thread))
   JRT_BLOCK;
   Handle obj (thread, recv);
+  if (obj.is_null()) {
+    thread->set_vm_result(obj());
+    return;
+  }
   Javelus::transform_object_common(obj, thread);
   thread->set_vm_result(obj());
   JRT_BLOCK_END;

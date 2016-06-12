@@ -1130,6 +1130,7 @@ Handle SharedRuntime::find_callee_info_helper(JavaThread* thread,
     // so don't check for the receiver class.
     // FIXME this weakens the assert too much
     methodHandle callee = callinfo.selected_method();
+    assert(!callee->is_old(), "should not be old");
     assert(receiver_klass->is_subtype_of(static_receiver_klass()) ||
            callee->is_method_handle_intrinsic() ||
            callee->is_compiled_lambda_form(),

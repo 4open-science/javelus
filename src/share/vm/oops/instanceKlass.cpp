@@ -2364,14 +2364,14 @@ int InstanceKlass::oop_oop_iterate##nv_suffix##_m(oop obj,              \
       closure->do_klass##nv_suffix(obj->klass());                        \
     }                                                                    \
   }                                                                      \
-  if (obj->mark()->is_mixed_object()) {                                                       \
-    oop phantom_object = oop(obj->mark()->decode_phantom_object_pointer());                   \
-    obj->set_mark(markOop(phantom_object));                                                   \
-    (closure)->do_oop##nv_suffix((oop*)obj->mark_addr());                                     \
-    phantom_object = oop(obj->mark());                                                        \
-    markOop new_mark = markOopDesc::encode_phantom_object_pointer_as_mark(phantom_object);    \
-    obj->set_mark(new_mark);                                                                  \
-  }                                                                                           \
+  if (obj->mark()->is_mixed_object() && (HeapWord*)obj->mark_addr() < mr.end() && (HeapWord*)obj->mark_addr() >= mr.start()) { \
+    oop phantom_object = oop(obj->mark()->decode_phantom_object_pointer());                             \
+    obj->set_mark(markOop(phantom_object));                                                             \
+    (closure)->do_oop##nv_suffix((oop*)obj->mark_addr());                                               \
+    phantom_object = oop(obj->mark());                                                                  \
+    markOop new_mark = markOopDesc::encode_phantom_object_pointer_as_mark(phantom_object);              \
+    obj->set_mark(new_mark);                                                                            \
+  }                                                                                                     \
   InstanceKlass_BOUNDED_OOP_MAP_ITERATE(                                 \
     obj, mr.start(), mr.end(),                                           \
     (closure)->do_oop##nv_suffix(p),                                     \
