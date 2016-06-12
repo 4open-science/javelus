@@ -678,6 +678,7 @@ Node* GraphKit::do_stale_object_check(Node* recv, bool check_mixed_object) {
       bci()));
   }
 
+#if 1
   kill_dead_locals();
   Node * call = make_runtime_call(RC_NO_LEAF,
     OptoRuntime::update_stale_object_Type(),
@@ -700,9 +701,10 @@ Node* GraphKit::do_stale_object_check(Node* recv, bool check_mixed_object) {
 
   return recv;
 
-#if 0
+#else
+
   RegionNode* result_rgn = new(C) RegionNode(3);
-  PhiNode*    result_val = new(C) PhiNode(result_rgn, t->join(TypePtr::VALID_PTR));
+  PhiNode*    result_val = new(C) PhiNode(result_rgn, tip->cast_not_stale());
   PhiNode*    result_io  = new(C) PhiNode(result_rgn, Type::ABIO);
   PhiNode*    result_mem = new(C) PhiNode(result_rgn, Type::MEMORY, TypePtr::BOTTOM);
 
@@ -737,7 +739,7 @@ Node* GraphKit::do_stale_object_check(Node* recv, bool check_mixed_object) {
   Node * call = make_runtime_call(RC_NO_LEAF,
     OptoRuntime::update_stale_object_Type(),
     OptoRuntime::update_stale_object_Java(),
-    "invalid object check",
+    NULL, // "invalid object check",
     TypePtr::BOTTOM,
     recv);
 
@@ -769,6 +771,7 @@ Node* GraphKit::do_stale_object_check(Node* recv, bool check_mixed_object) {
   _gvn.transform(result_val);
   return result_val;
 #endif
+
 }
 
 Node* GraphKit::do_mixed_object_check(Node* obj) {

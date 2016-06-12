@@ -2686,6 +2686,18 @@ int GraphKit::static_subtype_check(ciKlass* superk, ciKlass* subk) {
     superelem = superelem->as_array_klass()->base_element_type();
 
   if (!subk->is_interface()) {  // cannot trust static interface types yet
+    if (subk->is_instance_klass()) {
+      ciInstanceKlass* subik = subk->as_instance_klass();
+      if (subik->is_new_redefined_class()) {
+        return SSC_full_test;
+      }
+    }
+    if (superelem->is_instance_klass()) {
+      ciInstanceKlass* ik = superelem->as_instance_klass();
+      if (ik->is_new_redefined_class()) {
+        return SSC_full_test;
+      }
+    }
     if (subk->is_subtype_of(superk)) {
       return SSC_always_true;   // (1) false path dead; no dynamic test needed
     }
@@ -2706,6 +2718,17 @@ int GraphKit::static_subtype_check(ciKlass* superk, ciKlass* subk) {
         // Add a dependency if there is a chance of a later subclass.
         C->dependencies()->assert_leaf_type(ik);
       }
+      // In-place new class cannot pass simple
+      if (ik->is_new_redefined_class()) {
+        return SSC_full_test;
+      }
+      if (subk->is_instance_klass()) {
+        ciInstanceKlass* subik = subk->as_instance_klass();
+        if (subik->is_new_redefined_class()) {
+          return SSC_full_test;
+        }
+      }
+      // return SSC_full_test;
       return SSC_easy_test;     // (3) caller can do a simple ptr comparison
     }
   } else {

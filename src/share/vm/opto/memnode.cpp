@@ -1791,66 +1791,67 @@ const Type *LoadNode::Value( PhaseTransform *phase ) const {
   const TypeKlassPtr *tkls = tp->isa_klassptr();
   if (tkls != NULL && !StressReflectiveCode) {
     ciKlass* klass = tkls->klass();
-    if (klass->is_loaded() && tkls->klass_is_exact()) {
-      // We are loading a field from a Klass metaobject whose identity
-      // is known at compile time (the type is "exact" or "precise").
-      // Check for fields we know are maintained as constants by the VM.
-      if (tkls->offset() == in_bytes(Klass::super_check_offset_offset())) {
-        // The field is Klass::_super_check_offset.  Return its (constant) value.
-        // (Folds up type checking code.)
-        assert(Opcode() == Op_LoadI, "must load an int from _super_check_offset");
-        return TypeInt::make(klass->super_check_offset());
-      }
-      // Compute index into primary_supers array
-      juint depth = (tkls->offset() - in_bytes(Klass::primary_supers_offset())) / sizeof(Klass*);
-      // Check for overflowing; use unsigned compare to handle the negative case.
-      if( depth < ciKlass::primary_super_limit() ) {
-        // The field is an element of Klass::_primary_supers.  Return its (constant) value.
-        // (Folds up type checking code.)
-        assert(Opcode() == Op_LoadKlass, "must load a klass from _primary_supers");
-        ciKlass *ss = klass->super_of_depth(depth);
-        return ss ? TypeKlassPtr::make(ss) : TypePtr::NULL_PTR;
-      }
-      const Type* aift = load_array_final_field(tkls, klass);
-      if (aift != NULL)  return aift;
-      if (tkls->offset() == in_bytes(ArrayKlass::component_mirror_offset())
-          && klass->is_array_klass()) {
-        // The field is ArrayKlass::_component_mirror.  Return its (constant) value.
-        // (Folds up aClassConstant.getComponentType, common in Arrays.copyOf.)
-        assert(Opcode() == Op_LoadP, "must load an oop from _component_mirror");
-        return TypeInstPtr::make(klass->as_array_klass()->component_mirror());
-      }
-      if (tkls->offset() == in_bytes(Klass::java_mirror_offset())) {
-        // The field is Klass::_java_mirror.  Return its (constant) value.
-        // (Folds up the 2nd indirection in anObjConstant.getClass().)
-        assert(Opcode() == Op_LoadP, "must load an oop from _java_mirror");
-        return TypeInstPtr::make(klass->java_mirror());
-      }
-    }
-
-    // We can still check if we are loading from the primary_supers array at a
-    // shallow enough depth.  Even though the klass is not exact, entries less
-    // than or equal to its super depth are correct.
-    if (klass->is_loaded() ) {
-      ciType *inner = klass;
-      while( inner->is_obj_array_klass() )
-        inner = inner->as_obj_array_klass()->base_element_type();
-      if( inner->is_instance_klass() &&
-          !inner->as_instance_klass()->flags().is_interface() ) {
+    if (!(klass->is_instance_klass() && klass->as_instance_klass()->is_new_redefined_class())) {
+      if (klass->is_loaded() && tkls->klass_is_exact()) {
+        // We are loading a field from a Klass metaobject whose identity
+        // is known at compile time (the type is "exact" or "precise").
+        // Check for fields we know are maintained as constants by the VM.
+        if (tkls->offset() == in_bytes(Klass::super_check_offset_offset())) {
+          // The field is Klass::_super_check_offset.  Return its (constant) value.
+          // (Folds up type checking code.)
+          assert(Opcode() == Op_LoadI, "must load an int from _super_check_offset");
+          return TypeInt::make(klass->super_check_offset());
+        }
         // Compute index into primary_supers array
         juint depth = (tkls->offset() - in_bytes(Klass::primary_supers_offset())) / sizeof(Klass*);
         // Check for overflowing; use unsigned compare to handle the negative case.
-        if( depth < ciKlass::primary_super_limit() &&
-            depth <= klass->super_depth() ) { // allow self-depth checks to handle self-check case
+        if( depth < ciKlass::primary_super_limit() ) {
           // The field is an element of Klass::_primary_supers.  Return its (constant) value.
           // (Folds up type checking code.)
           assert(Opcode() == Op_LoadKlass, "must load a klass from _primary_supers");
           ciKlass *ss = klass->super_of_depth(depth);
           return ss ? TypeKlassPtr::make(ss) : TypePtr::NULL_PTR;
         }
+        const Type* aift = load_array_final_field(tkls, klass);
+        if (aift != NULL)  return aift;
+        if (tkls->offset() == in_bytes(ArrayKlass::component_mirror_offset())
+            && klass->is_array_klass()) {
+          // The field is ArrayKlass::_component_mirror.  Return its (constant) value.
+          // (Folds up aClassConstant.getComponentType, common in Arrays.copyOf.)
+          assert(Opcode() == Op_LoadP, "must load an oop from _component_mirror");
+          return TypeInstPtr::make(klass->as_array_klass()->component_mirror());
+        }
+        if (tkls->offset() == in_bytes(Klass::java_mirror_offset())) {
+          // The field is Klass::_java_mirror.  Return its (constant) value.
+          // (Folds up the 2nd indirection in anObjConstant.getClass().)
+          assert(Opcode() == Op_LoadP, "must load an oop from _java_mirror");
+          return TypeInstPtr::make(klass->java_mirror());
+        }
+      }
+
+      // We can still check if we are loading from the primary_supers array at a
+      // shallow enough depth.  Even though the klass is not exact, entries less
+      // than or equal to its super depth are correct.
+      if (klass->is_loaded() ) {
+        ciType *inner = klass;
+        while( inner->is_obj_array_klass() )
+          inner = inner->as_obj_array_klass()->base_element_type();
+        if( inner->is_instance_klass() &&
+            !inner->as_instance_klass()->flags().is_interface() ) {
+          // Compute index into primary_supers array
+          juint depth = (tkls->offset() - in_bytes(Klass::primary_supers_offset())) / sizeof(Klass*);
+          // Check for overflowing; use unsigned compare to handle the negative case.
+          if( depth < ciKlass::primary_super_limit() &&
+              depth <= klass->super_depth() ) { // allow self-depth checks to handle self-check case
+            // The field is an element of Klass::_primary_supers.  Return its (constant) value.
+            // (Folds up type checking code.)
+            assert(Opcode() == Op_LoadKlass, "must load a klass from _primary_supers");
+            ciKlass *ss = klass->super_of_depth(depth);
+            return ss ? TypeKlassPtr::make(ss) : TypePtr::NULL_PTR;
+          }
+        }
       }
     }
-
     // If the type is enough to determine that the thing is not an array,
     // we can give the layout_helper a positive interval type.
     // This will help short-circuit some reflective code.
@@ -1858,7 +1859,7 @@ const Type *LoadNode::Value( PhaseTransform *phase ) const {
         && !klass->is_array_klass() // not directly typed as an array
         && !klass->is_interface()  // specifically not Serializable & Cloneable
         && !klass->is_java_lang_Object()   // not the supertype of all T[]
-        ) {
+       ) {
       // Note:  When interfaces are reliable, we can narrow the interface
       // test to (klass != Serializable && klass != Cloneable).
       assert(Opcode() == Op_LoadI, "must load an int from _layout_helper");

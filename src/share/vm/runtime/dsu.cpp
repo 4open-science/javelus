@@ -2436,6 +2436,8 @@ void DSUClass::post_fix_new_inplace_new_class(InstanceKlass* old_version,
   new_inplace_new_class->set_super_check_offset(in_bytes(Klass::primary_supers_offset()));
   new_inplace_new_class->initialize_supers(new_version, THREAD);
 
+  assert(new_inplace_new_class->is_subtype_of(new_version), "sanity check");
+
   if (HAS_PENDING_EXCEPTION) {
     DSU_WARN(("Initialize super error for mix class."));
     return;
