@@ -85,6 +85,8 @@ DSU::DSU()
   _to_rn(0),
   _first_class_loader(NULL),
   _last_class_loader(NULL),
+  _first_class(NULL),
+  _last_class(NULL),
   _request_state(DSU_REQUEST_INIT),
   _dynamic_patch(NULL),
   _next(NULL),
@@ -2582,6 +2584,20 @@ void DSU::add_class_loader(DSUClassLoader* class_loader) {
   _last_class_loader = _last_class_loader->next();
 }
 
+
+void DSU::add_class(DSUClass* dsu_class) {
+  if (_first_class == NULL) {
+    assert(_last_class == NULL, "sanity check");
+    _first_class = _last_class = dsu_class;
+    return;
+  }
+
+  assert(_last_class != NULL, "sanity check");
+  dsu_class->set_next(NULL);
+  _last_class->set_next(dsu_class);
+  _last_class = _last_class->next();
+}
+
 DSUClassLoader* DSU::allocate_class_loader(Symbol* id, Symbol* lid, TRAPS) {
   if (id == NULL || id->utf8_length() == 0 ) {
     id = SymbolTable::lookup("", 0, CHECK_NULL);
@@ -2628,10 +2644,13 @@ DSU::~DSU() {
 
 // Iterate all classes in this class.
 void DSU::classes_do(void f(DSUClass * dsu_class, TRAPS), TRAPS) {
-  for (DSUClassLoader* dsu_loader = first_class_loader(); dsu_loader!=NULL; dsu_loader=dsu_loader->next()) {
-    for(DSUClass *dsu_class = dsu_loader->first_class();dsu_class!=NULL;dsu_class=dsu_class->next()) {
-      f(dsu_class, CHECK);
-    }
+//  for (DSUClassLoader* dsu_loader = first_class_loader(); dsu_loader!=NULL; dsu_loader=dsu_loader->next()) {
+//    for(DSUClass *dsu_class = dsu_loader->first_class();dsu_class!=NULL;dsu_class=dsu_class->next()) {
+//      f(dsu_class, CHECK);
+//    }
+//  }
+  for (DSUClass* dsu_class = _first_class; dsu_class != NULL; dsu_class = dsu_class->next()) {
+    f(dsu_class, CHECK);
   }
 }
 
@@ -2960,7 +2979,8 @@ bool DSU::is_changed_reflect_field(oop reflection) {
   if (ik->dsu_will_be_redefined()) {
     return true;
   } else if (ik->dsu_will_be_deleted()) {
-    ShouldNotReachHere();
+    // ShouldNotReachHere();
+    return false;
   } else if (ik->dsu_will_be_swapped()) {
     return true;
   }
@@ -2975,7 +2995,8 @@ bool DSU::is_changed_reflect_method(oop reflection) {
   if (ik->dsu_will_be_redefined()) {
     return true;
   } else if (ik->dsu_will_be_deleted()) {
-    ShouldNotReachHere();
+    // ShouldNotReachHere();
+    return false;
   } else if (ik->dsu_will_be_swapped()) {
     return true;
   }
@@ -2990,7 +3011,8 @@ bool DSU::is_changed_reflect_constructor(oop reflection) {
   if (ik->dsu_will_be_redefined()) {
     return true;
   } else if (ik->dsu_will_be_deleted()) {
-    ShouldNotReachHere();
+    // ShouldNotReachHere();
+    return false;
   } else if (ik->dsu_will_be_swapped()) {
     return true;
   }
@@ -3298,9 +3320,14 @@ DSUClassLoader *DSU::find_or_create_class_loader_by_loader(Handle loader, TRAPS)
 }
 
 DSUClass* DSU::find_class_by_name(Symbol* name) {
-  for (DSUClassLoader* dsu_loader = first_class_loader(); dsu_loader!=NULL; dsu_loader=dsu_loader->next()) {
-    DSUClass* dsu_class = dsu_loader->find_class_by_name(name);
-    if (dsu_class != NULL) {
+//  for (DSUClassLoader* dsu_loader = first_class_loader(); dsu_loader!=NULL; dsu_loader=dsu_loader->next()) {
+//    DSUClass* dsu_class = dsu_loader->find_class_by_name(name);
+//    if (dsu_class != NULL) {
+//      return dsu_class;
+//    }
+//  }
+  for (DSUClass* dsu_class = _first_class; dsu_class != NULL; dsu_class = dsu_class->next()) {
+    if (dsu_class->name() == name) {
       return dsu_class;
     }
   }
@@ -3770,11 +3797,7 @@ void DSUDynamicPatchBuilder::append_added_class(char * line, TRAPS) {
 
   dsu_class->set_updating_type(DSU_CLASS_ADD);
   dsu_class->set_stream_provider(current_class_loader()->stream_provider());
-
-  // TODO why we need resolve class loader here.
-  // I cannot remember
-  //dsu_class->dsu_class_loader()->resolve(CHECK);
-  //assert(dsu_class->dsu_class_loader()->classloader() != NULL, "sanity check");
+  dsu()->add_class(dsu_class);
 }
 
 void DSUDynamicPatchBuilder::append_modified_class(char * line, TRAPS) {
@@ -3783,6 +3806,7 @@ void DSUDynamicPatchBuilder::append_modified_class(char * line, TRAPS) {
   _current_class = dsu_class;
   dsu_class->set_updating_type(DSU_CLASS_NONE);
   dsu_class->set_stream_provider(current_class_loader()->stream_provider());
+  dsu()->add_class(dsu_class);
 }
 
 void DSUDynamicPatchBuilder::append_deleted_class(char * line, TRAPS) {
@@ -3790,6 +3814,7 @@ void DSUDynamicPatchBuilder::append_deleted_class(char * line, TRAPS) {
   DSUClass * dsu_class = current_class_loader()->allocate_class(class_name, CHECK);
   _current_class = dsu_class;
   dsu_class->set_updating_type(DSU_CLASS_DEL);
+  dsu()->add_class(dsu_class);
 }
 
 void DSUDynamicPatchBuilder::append_transformer(char * line, TRAPS) {

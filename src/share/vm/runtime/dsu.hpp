@@ -747,6 +747,10 @@ private:
   DSUClassLoader* _first_class_loader;
   DSUClassLoader* _last_class_loader;
 
+  // A linked list of all classes
+  DSUClass* _first_class;
+  DSUClass* _last_class;
+
   DSURequestState _request_state;
   const char * _dynamic_patch;
 
@@ -857,6 +861,7 @@ public:
   DSUClassLoader* allocate_class_loader(Symbol* id, Symbol* lid, TRAPS);
   // append class loader to the list, no checking
   void add_class_loader(DSUClassLoader* class_loader);
+  void add_class(DSUClass* dsu_class);
 
   // query DSUClass
   DSUClass* find_class_by_name(Symbol* name);

@@ -357,7 +357,7 @@ void ATTR ObjectMonitor::enter(TRAPS) {
   if (Knob_SpinEarly && TrySpin (Self) > 0) {
      assert (_owner == Self      , "invariant") ;
      assert (_recursions == 0    , "invariant") ;
-     assert (((oop)(object()))->mark() == markOopDesc::encode(this), "invariant") ;
+     assert (((oop)(object()))->mark()->is_mixed_object() || ((oop)(object()))->mark() == markOopDesc::encode(this), "invariant") ;
      Self->_Stalled = 0 ;
      return ;
   }
@@ -438,7 +438,7 @@ void ATTR ObjectMonitor::enter(TRAPS) {
   assert (_recursions == 0     , "invariant") ;
   assert (_owner == Self       , "invariant") ;
   assert (_succ  != Self       , "invariant") ;
-  assert (((oop)(object()))->mark() == markOopDesc::encode(this), "invariant") ;
+  assert (((oop)(object()))->mark()->is_mixed_object() || ((oop)(object()))->mark() == markOopDesc::encode(this), "invariant") ;
 
   // The thread -- now the owner -- is back in vm mode.
   // Report the glorious news via TI,DTrace and jvmstat.
@@ -752,7 +752,7 @@ void ATTR ObjectMonitor::ReenterI (Thread * Self, ObjectWaiter * SelfNode) {
     assert (SelfNode != NULL            , "invariant") ;
     assert (SelfNode->_thread == Self   , "invariant") ;
     assert (_waiters > 0                , "invariant") ;
-    assert (((oop)(object()))->mark() == markOopDesc::encode(this) , "invariant") ;
+    assert (((oop)(object()))->mark()->is_mixed_object() || ((oop)(object()))->mark() == markOopDesc::encode(this) , "invariant") ;
     assert (((JavaThread *)Self)->thread_state() != _thread_blocked, "invariant") ;
     JavaThread * jt = (JavaThread *) Self ;
 
@@ -827,7 +827,7 @@ void ATTR ObjectMonitor::ReenterI (Thread * Self, ObjectWaiter * SelfNode) {
     // In addition, Self.TState is stable.
 
     assert (_owner == Self, "invariant") ;
-    assert (((oop)(object()))->mark() == markOopDesc::encode(this), "invariant") ;
+    assert (((oop)(object()))->mark()->is_mixed_object() || ((oop)(object()))->mark() == markOopDesc::encode(this), "invariant") ;
     UnlinkAfterAcquire (Self, SelfNode) ;
     if (_succ == Self) _succ = NULL ;
     assert (_succ != Self, "invariant") ;
@@ -1668,7 +1668,7 @@ void ObjectMonitor::wait(jlong millis, bool interruptible, TRAPS) {
    // Verify a few postconditions
    assert (_owner == Self       , "invariant") ;
    assert (_succ  != Self       , "invariant") ;
-   assert (((oop)(object()))->mark() == markOopDesc::encode(this), "invariant") ;
+   assert (((oop)(object()))->mark()->is_mixed_object() || ((oop)(object()))->mark() == markOopDesc::encode(this), "invariant") ;
 
    if (SyncFlags & 32) {
       OrderAccess::fence() ;
