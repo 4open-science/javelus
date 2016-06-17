@@ -85,8 +85,6 @@ DSU::DSU()
   _to_rn(0),
   _first_class_loader(NULL),
   _last_class_loader(NULL),
-  _first_class(NULL),
-  _last_class(NULL),
   _request_state(DSU_REQUEST_INIT),
   _dynamic_patch(NULL),
   _next(NULL),
@@ -400,6 +398,7 @@ DSUError DSUClass::resolve_new_version(InstanceKlass* &new_version, TRAPS) {
   }
 
   if (new_version_resolved()) {
+    new_version = _new_version;
     return DSU_ERROR_NONE;
   }
 
@@ -450,17 +449,7 @@ DSUError DSUClass::resolve_new_version_at_safe_point(InstanceKlass* &new_version
 void DSUClass::set_restricted_methods() {
   DSUMethod * dsu_method = first_method();
 
-  // as a deleted class has no new version
-  // we cannot compare and normalize them
-  // Just blindly set all methods as restricted and DEL here.
-  if (this->updating_type() == DSU_CLASS_DEL) {
-    for (; dsu_method != NULL; dsu_method = dsu_method->next()) {
-      dsu_method->set_updating_type(DSU_METHOD_DEL);
-      Method* method = dsu_method->method();
-      method->set_is_restricted_method();
-    }
-    return;
-  }
+  assert(updating_type() >= DSU_CLASS_BC && updating_type() <= DSU_CLASS_BOTH, "must be bytecode changed");
 
   for (; dsu_method != NULL; dsu_method = dsu_method->next()) {
     Method* method = dsu_method->method();
@@ -982,24 +971,44 @@ DSUError DSUClass::prepare(TRAPS) {
     return DSU_ERROR_NONE;
   }
 
+
   DSUError ret;
   ResourceMark rm(THREAD);
+  DSU_DEBUG(("Prepare DSU class %s (%s) %d", name()->as_C_string(),
+      Javelus::class_updating_type_name(updating_type()),
+      prepared()));
   InstanceKlass* old_version = NULL;
   ret = resolve_old_version(old_version, THREAD);
 
   // a deleted class or a modified class has not been loaded
   if (ret == DSU_ERROR_OLD_CLASS_NOT_LOADED && IgnoreUnloadedOldClass) {
+    ResourceMark rm(THREAD);
+    DSU_WARN(("A deleted class [%s] cannot be resolved.", this->name()->as_C_string()));
     return DSU_ERROR_NONE;
   }
 
   if (updating_type() == DSU_CLASS_DEL) {
     // cannot resolve old version, return with error
     if (ret != DSU_ERROR_NONE) {
+      ResourceMark rm(THREAD);
+      DSU_WARN(("A deleted class [%s] cannot be resolved.", this->name()->as_C_string()));
       return ret;
     }
 
     if (old_version != NULL) {
-      set_restricted_methods();
+      Array<Method*>* old_methods = old_version->methods();
+      for (int i = 0; i < old_methods->length(); i++) {
+        Method* method = old_methods->at(i);
+        DSUMethod* dsu_method = this->allocate_method(method, CHECK_(DSU_ERROR_TO_BE_ADDED));
+        dsu_method->set_updating_type(DSU_METHOD_DEL);
+        DSU_TRACE(0x00000008, ("method %s::%s.%s is restricted. %d",
+              this->name()->as_C_string(),
+              method->name()->as_C_string(),
+              method->signature()->as_C_string(),
+              dsu_method->updating_type())
+            );
+        method->set_is_restricted_method();
+      }
       old_version->set_dsu_state(DSUState::dsu_will_be_deleted);
       _prepared = true;
     } else {
@@ -1335,10 +1344,19 @@ DSUError DSUClass::refresh_updating_type(InstanceKlass* old_version, InstanceKla
 }
 
 DSUClassUpdatingType Javelus::join(DSUClassUpdatingType this_type, DSUClassUpdatingType that_type) {
+  if (this_type > that_type) {
+    return join(that_type, this_type);
+  }
+  assert(this_type <= that_type, "sanity check");
   switch(this_type) {
   case DSU_CLASS_UNKNOWN:
+    ShouldNotReachHere();
+    break;
   case DSU_CLASS_NONE:
-    return that_type;
+    if (that_type <= DSU_CLASS_BOTH) {
+      return that_type;
+    }
+    return DSU_CLASS_BOTH;
   case DSU_CLASS_MC:
     // no upgrade from MC
     ShouldNotReachHere();
@@ -1351,7 +1369,11 @@ DSUClassUpdatingType Javelus::join(DSUClassUpdatingType this_type, DSUClassUpdat
   case DSU_CLASS_METHOD:
   case DSU_CLASS_FIELD:
   case DSU_CLASS_BOTH:
-    return this_type>that_type ? this_type:that_type;
+    assert(this_type <= that_type, "sanity check");
+    if (that_type <= DSU_CLASS_BOTH) {
+      return that_type;
+    }
+    return DSU_CLASS_BOTH;
   case DSU_CLASS_ADD:
   case DSU_CLASS_DEL:
     // no upgrade
@@ -1369,6 +1391,7 @@ DSUClassUpdatingType Javelus::join(DSUClassUpdatingType this_type, DSUClassUpdat
 DSUError DSUClass::compare_and_normalize_class(InstanceKlass* old_version,
   InstanceKlass* new_version, TRAPS) {
   const DSUClassUpdatingType old_updating_type = updating_type();
+  assert(old_updating_type != DSU_CLASS_UNKNOWN, "we should know whether it has been added/modified/deleted.");
   DSUClassUpdatingType new_updating_type = DSU_CLASS_NONE;
 
   HandleMark hm(THREAD);
@@ -1379,9 +1402,6 @@ DSUError DSUClass::compare_and_normalize_class(InstanceKlass* old_version,
   assert(old_version->super() != NULL , "javelus does not updating library classes");
   assert(new_version->super() != NULL , "javelus does not updating library classes");
 
-
-  // XXX Compare the name, since body changed class could be ...
-  // first check whether super is the same
 
   {
     InstanceKlass* old_super = old_version->superklass();
@@ -1394,6 +1414,8 @@ DSUError DSUClass::compare_and_normalize_class(InstanceKlass* old_version,
       }
 
       DSUClassUpdatingType super_updating_type = Javelus::get_updating_type(old_super, CHECK_(DSU_ERROR_GET_UPDATING_TYPE));
+      assert(super_updating_type != DSU_CLASS_UNKNOWN, "we should know whether it has been added/modified/deleted.");
+      assert(super_updating_type != DSU_CLASS_ADD, "old super should not be new added.");
       if (super_updating_type == DSU_CLASS_DEL) {
         // TODO deleted super class cannot propagate to sub classes.
         // In fact, the new updating type should be DSU_CLASS_BOTH any way.
@@ -1422,6 +1444,8 @@ DSUError DSUClass::compare_and_normalize_class(InstanceKlass* old_version,
               // really different
           }
           DSUClassUpdatingType interface_updating_type = Javelus::get_updating_type(InstanceKlass::cast(old_interface), CHECK_(DSU_ERROR_GET_UPDATING_TYPE));
+          assert(interface_updating_type != DSU_CLASS_UNKNOWN, "we should know whether it has been added/modified/deleted.");
+          assert(interface_updating_type != DSU_CLASS_ADD, "old super should not be new added.");
           if (interface_updating_type == DSU_CLASS_DEL) {
             // TODO deleted super class cannot propagate to sub classes.
             // In fact, the new updating type should be DSU_CLASS_BOTH any way.
@@ -2584,20 +2608,6 @@ void DSU::add_class_loader(DSUClassLoader* class_loader) {
   _last_class_loader = _last_class_loader->next();
 }
 
-
-void DSU::add_class(DSUClass* dsu_class) {
-  if (_first_class == NULL) {
-    assert(_last_class == NULL, "sanity check");
-    _first_class = _last_class = dsu_class;
-    return;
-  }
-
-  assert(_last_class != NULL, "sanity check");
-  dsu_class->set_next(NULL);
-  _last_class->set_next(dsu_class);
-  _last_class = _last_class->next();
-}
-
 DSUClassLoader* DSU::allocate_class_loader(Symbol* id, Symbol* lid, TRAPS) {
   if (id == NULL || id->utf8_length() == 0 ) {
     id = SymbolTable::lookup("", 0, CHECK_NULL);
@@ -2644,13 +2654,10 @@ DSU::~DSU() {
 
 // Iterate all classes in this class.
 void DSU::classes_do(void f(DSUClass * dsu_class, TRAPS), TRAPS) {
-//  for (DSUClassLoader* dsu_loader = first_class_loader(); dsu_loader!=NULL; dsu_loader=dsu_loader->next()) {
-//    for(DSUClass *dsu_class = dsu_loader->first_class();dsu_class!=NULL;dsu_class=dsu_class->next()) {
-//      f(dsu_class, CHECK);
-//    }
-//  }
-  for (DSUClass* dsu_class = _first_class; dsu_class != NULL; dsu_class = dsu_class->next()) {
-    f(dsu_class, CHECK);
+  for (DSUClassLoader* dsu_loader = first_class_loader(); dsu_loader!=NULL; dsu_loader=dsu_loader->next()) {
+    for(DSUClass *dsu_class = dsu_loader->first_class();dsu_class!=NULL;dsu_class=dsu_class->next()) {
+      f(dsu_class, CHECK);
+    }
   }
 }
 
@@ -3320,14 +3327,9 @@ DSUClassLoader *DSU::find_or_create_class_loader_by_loader(Handle loader, TRAPS)
 }
 
 DSUClass* DSU::find_class_by_name(Symbol* name) {
-//  for (DSUClassLoader* dsu_loader = first_class_loader(); dsu_loader!=NULL; dsu_loader=dsu_loader->next()) {
-//    DSUClass* dsu_class = dsu_loader->find_class_by_name(name);
-//    if (dsu_class != NULL) {
-//      return dsu_class;
-//    }
-//  }
-  for (DSUClass* dsu_class = _first_class; dsu_class != NULL; dsu_class = dsu_class->next()) {
-    if (dsu_class->name() == name) {
+  for (DSUClassLoader* dsu_loader = first_class_loader(); dsu_loader!=NULL; dsu_loader=dsu_loader->next()) {
+    DSUClass* dsu_class = dsu_loader->find_class_by_name(name);
+    if (dsu_class != NULL) {
       return dsu_class;
     }
   }
@@ -3797,7 +3799,6 @@ void DSUDynamicPatchBuilder::append_added_class(char * line, TRAPS) {
 
   dsu_class->set_updating_type(DSU_CLASS_ADD);
   dsu_class->set_stream_provider(current_class_loader()->stream_provider());
-  dsu()->add_class(dsu_class);
 }
 
 void DSUDynamicPatchBuilder::append_modified_class(char * line, TRAPS) {
@@ -3806,7 +3807,6 @@ void DSUDynamicPatchBuilder::append_modified_class(char * line, TRAPS) {
   _current_class = dsu_class;
   dsu_class->set_updating_type(DSU_CLASS_NONE);
   dsu_class->set_stream_provider(current_class_loader()->stream_provider());
-  dsu()->add_class(dsu_class);
 }
 
 void DSUDynamicPatchBuilder::append_deleted_class(char * line, TRAPS) {
@@ -3814,7 +3814,6 @@ void DSUDynamicPatchBuilder::append_deleted_class(char * line, TRAPS) {
   DSUClass * dsu_class = current_class_loader()->allocate_class(class_name, CHECK);
   _current_class = dsu_class;
   dsu_class->set_updating_type(DSU_CLASS_DEL);
-  dsu()->add_class(dsu_class);
 }
 
 void DSUDynamicPatchBuilder::append_transformer(char * line, TRAPS) {
@@ -4925,6 +4924,8 @@ const char * Javelus::class_updating_type_name(DSUClassUpdatingType ct) {
     return "DSU_CLASS_BOTH";
   case DSU_CLASS_DEL:
     return "DSU_CLASS_DEL";
+  case DSU_CLASS_ADD:
+    return "DSU_CLASS_ADD";
   case DSU_CLASS_STUB:
     return "DSU_CLASS_STUB";
   case DSU_CLASS_UNKNOWN:
@@ -5875,7 +5876,7 @@ DSUClassUpdatingType Javelus::get_updating_type(InstanceKlass* ikh, TRAPS) {
     return dsu_class->updating_type();
   }
 
-  return DSU_CLASS_UNKNOWN;
+  return DSU_CLASS_NONE;
 }
 
 
