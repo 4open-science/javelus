@@ -799,7 +799,33 @@ Klass* SystemDictionary::resolve_instance_class_or_null(Symbol* name,
     if (!class_has_been_loaded) {
       bool redefined_but_not_loaded = loader_data->contains_redefined(name);
       if (redefined_but_not_loaded) {
-        k = loader_data->load_redefined_instance_class(name, class_loader, THREAD);
+        ResourceMark rm(THREAD);
+        DSU_WARN(("loading a redefined instance class: %s", name->as_C_string()));
+        // this loader_data may not be the one that define the class
+        // we should find the caller of this loading
+        assert(THREAD->is_Java_thread(), "must be java thread");
+        JavaThread* jt = (JavaThread*) THREAD;
+        if (jt->has_last_Java_frame()) {
+          ResourceMark rm;
+          HandleMark   hm;
+          RegisterMap  reg_map(jt);
+          javaVFrame*  jvf = jt->last_java_vframe(&reg_map);
+          if (jvf != NULL) {
+            Method* caller = jvf->method();
+            DSU_DEBUG(("Loading redefined class: caller is %s", caller->name_and_sig_as_C_string()));
+            ClassLoaderData* new_loader_data = caller->method_holder()->class_loader_data();
+            if (new_loader_data != loader_data) {
+              Handle new_loader (THREAD, new_loader_data->class_loader());
+              k = resolve_instance_class_or_null(name, new_loader, protection_domain, CHECK_NULL);
+              return k();
+            }
+          }
+          k = loader_data->load_redefined_instance_class(name, class_loader, THREAD);
+        } else {
+          tty->print_cr("has no java frame");
+          k = loader_data->load_redefined_instance_class(name, class_loader, THREAD);
+        }
+        define_instance_class(k, THREAD);
       } else {
         // Do actual loading
         k = load_instance_class(name, class_loader, THREAD);

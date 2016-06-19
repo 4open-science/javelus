@@ -423,6 +423,7 @@ public:
   DSUError resolve_new_version(InstanceKlass* &new_version, TRAPS);
   DSUError resolve_new_version_at_safe_point(InstanceKlass* &new_version, TRAPS);
   DSUError resolve_new_version_by_dsu_thread(InstanceKlass* &new_version, TRAPS);
+  void update_class_loader(DSUClassLoader* new_loader);
 
   DSUError refresh_updating_type(InstanceKlass* old_version,
     InstanceKlass* new_version, TRAPS);
@@ -675,7 +676,7 @@ public:
   DSUClass *first_class() const { return _first_class; }
   DSUClass *last_class() const { return _last_class; }
   void add_class(DSUClass* klass);
-  void remove_unchanged_classes();
+  void remove_class(DSUClass* klass);
 
   bool resolve_transformer(Symbol* transformer_name, TRAPS);
 
@@ -754,6 +755,7 @@ private:
 
   DSUStreamProvider* _shared_stream_provider;
 
+  GrowableArray<DSUClass*>* _classes_in_order;
 public:
   DSU();
   ~DSU();
@@ -773,7 +775,7 @@ public:
   // update this DSU
   DSUError update(TRAPS);
 
-  void update_class_loaders(TRAPS);
+  void update_ordered_classes(TRAPS);
 
   DSURequestState request_state() const {
     return _request_state;
@@ -857,6 +859,7 @@ public:
   DSUClassLoader* allocate_class_loader(Symbol* id, Symbol* lid, TRAPS);
   // append class loader to the list, no checking
   void add_class_loader(DSUClassLoader* class_loader);
+  void add_class(DSUClass* dsu_class);
 
   // query DSUClass
   DSUClass* find_class_by_name(Symbol* name);

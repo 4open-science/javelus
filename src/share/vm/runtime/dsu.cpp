@@ -88,18 +88,32 @@ DSU::DSU()
   _request_state(DSU_REQUEST_INIT),
   _dynamic_patch(NULL),
   _next(NULL),
-  _shared_stream_provider(NULL) {}
+  _shared_stream_provider(NULL),
+  _classes_in_order(NULL) {
+  _classes_in_order = new (ResourceObj::C_HEAP, mtInternal) GrowableArray<DSUClass*>(20, true);
+}
+
 
 DSUError DSU::prepare(TRAPS) {
-  DSUClassLoader* dsu_class_loader = first_class_loader();
-  for(; dsu_class_loader != NULL; dsu_class_loader = dsu_class_loader->next()) {
-    DSUError ret = dsu_class_loader->prepare(THREAD);
+  DSUClass* dsu_class = NULL;
+  const int length = _classes_in_order->length();
+  int num_of_prepared_class = 0;
+  for (int i = 0; i < length; i++) {
+    dsu_class = _classes_in_order->at(i);
+    DSUError ret = dsu_class->prepare(THREAD);
     if (ret != DSU_ERROR_NONE) {
       return ret;
     }
     if (HAS_PENDING_EXCEPTION) {
       return DSU_ERROR_PREPARE_DSU;
     }
+    if (dsu_class->prepared() && dsu_class->updating_type() != DSU_CLASS_NONE) {
+      num_of_prepared_class++;
+    }
+  }
+
+  if (num_of_prepared_class == 0) {
+    return DSU_ERROR_NO_UPDATED_CLASS;
   }
 
   {
@@ -110,20 +124,6 @@ DSUError DSU::prepare(TRAPS) {
   }
 
   this->collect_changed_reflections(CHECK_(DSU_ERROR_TO_BE_ADDED));
-
-  int num_of_prepared_class = 0;
-  for (DSUClassLoader* dsu_loader = first_class_loader(); dsu_loader!=NULL; dsu_loader=dsu_loader->next()) {
-    for(DSUClass *dsu_class = dsu_loader->first_class();dsu_class!=NULL;dsu_class=dsu_class->next()) {
-      if (dsu_class->prepared()) {
-        num_of_prepared_class++;
-      }
-    }
-  }
-
-  if (num_of_prepared_class == 0) {
-    return DSU_ERROR_NO_UPDATED_CLASS;
-  }
-
   return DSU_ERROR_NONE;
 }
 
@@ -137,17 +137,17 @@ bool DSU::reflection_modified() const {
   return _weak_reflection_number_at_prepare != JNIHandles::weak_reflection_modification_number();
 }
 
-// helper function to iterate all DSU classes.
-void update_single_class(DSUClass * dsu_class,TRAPS) {
-  dsu_class->update(CHECK);
-}
-
 
 // TODO:
 // DSUClassLoader may have some updating action.
 // To be considered
-void DSU::update_class_loaders(TRAPS) {
-  this->classes_do(&update_single_class, CHECK);
+void DSU::update_ordered_classes(TRAPS) {
+  for (int i = 0; i < _classes_in_order->length(); i++) {
+    DSUClass* dsu_class = _classes_in_order->at(i);
+    if (dsu_class->prepared() && dsu_class->updating_type() != DSU_CLASS_NONE) {
+      dsu_class->update(CHECK);
+    }
+  }
 }
 
 DSUError DSU::update(TRAPS) {
@@ -201,7 +201,7 @@ DSUError DSU::update(TRAPS) {
     update_changed_reflection(CHECK_(DSU_ERROR_TO_BE_ADDED));
   }
   // 2.2). update each class contained in this DSU
-  update_class_loaders(CHECK_(DSU_ERROR_UPDATE_DSUCLASSLOADER));
+  update_ordered_classes(CHECK_(DSU_ERROR_UPDATE_DSUCLASSLOADER));
 
   relink_collected_classes(CHECK_(DSU_ERROR_COLLECT_CLASSES_TO_RELINK));
 
@@ -272,13 +272,13 @@ DSUError DSU::update(TRAPS) {
 void DSU::set_up_new_classpath(TRAPS) {
   ResourceMark rm(THREAD);
   bool has_not_loaded_new_version = false;
-  for (DSUClassLoader* dsu_loader = first_class_loader(); dsu_loader != NULL; dsu_loader = dsu_loader->next()) {
-    ClassLoaderData* loader_data = dsu_loader->class_loader_data();
-    assert(loader_data != NULL, "sanity check");
-    for (DSUClass *dsu_class = dsu_loader->first_class(); dsu_class != NULL; dsu_class = dsu_class->next()) {
-      if (dsu_class->require_new_version() && dsu_class->new_version_class() == NULL) {
-        has_not_loaded_new_version = true;
-        DSU_WARN(("Add a not loaded new class %s", dsu_class->name()->as_C_string()));
+  for (int i = 0; i < _classes_in_order->length(); i++) {
+    DSUClass* dsu_class = _classes_in_order->at(i);
+    if (dsu_class->require_new_version() && dsu_class->new_version_class() == NULL) {
+      has_not_loaded_new_version = true;
+      DSU_WARN(("Add a not loaded new class %s", dsu_class->name()->as_C_string()));
+      for (DSUClassLoader* dsu_loader = first_class_loader(); dsu_loader != NULL; dsu_loader = dsu_loader->next()) {
+        ClassLoaderData* loader_data = dsu_loader->class_loader_data();
         loader_data->add_to_redefined_list(dsu_class->name());
         loader_data->set_stream_provider(dsu_loader->stream_provider());
       }
@@ -322,6 +322,19 @@ bool DSUClass::new_version_resolved() const{
   return _new_version!=NULL;
 }
 
+void DSUClass::update_class_loader(DSUClassLoader* new_loader) {
+  DSUClassLoader* old_loader = _dsu_class_loader;
+  assert(old_loader != new_loader, "sanity check");
+  if (old_loader == new_loader) {
+    DSU_WARN(("update a class loader to the same class loader"));
+    return;
+  }
+
+  old_loader->remove_class(this);
+  new_loader->add_class(this);
+  _dsu_class_loader = new_loader;
+}
+
 // Resolve klass and set transformers
 DSUError DSUClass::resolve_old_version(InstanceKlass* &old_version, TRAPS) {
 
@@ -350,8 +363,6 @@ DSUError DSUClass::resolve_old_version(InstanceKlass* &old_version, TRAPS) {
   Handle loader (THREAD, dsu_class_loader()->classloader());
   Handle null_pd;
 
-  //InstanceKlass* klass_h (THREAD, klass());
-  //
   Klass* klass = SystemDictionary::find(class_name, loader, null_pd, THREAD);
 
   if (HAS_PENDING_EXCEPTION) {
@@ -361,8 +372,27 @@ DSUError DSUClass::resolve_old_version(InstanceKlass* &old_version, TRAPS) {
   }
 
   if (klass == NULL) {
+    ClassLoaderData* result = NULL;
+    {
+      MutexLocker mu(SystemDictionary_lock, THREAD);
+      Javelus::pick_loader_by_class_name(class_name, result, THREAD);
+    }
+    if (result != NULL) {
+      DSU_WARN(("Class %s cannot be loaded by "PTR_FORMAT" but can be loaded by "PTR_FORMAT,
+            class_name->as_C_string(), p2i(loader()), p2i(result->class_loader())));
+      loader = Handle(THREAD, result->class_loader());
+      klass = SystemDictionary::find(class_name, loader, null_pd, THREAD);
+      assert(klass != NULL, "sanity check");
+
+      DSUClassLoader* new_loader = dsu_class_loader()->dsu()->find_or_create_class_loader_by_loader(result->class_loader(), CHECK_(DSU_ERROR_OLD_CLASS_NOT_LOADED));
+      assert(new_loader != NULL, "sanity check");
+      update_class_loader(new_loader);
+    }
+  }
+
+  if (klass == NULL) {
     ResourceMark rm(THREAD);
-    DSU_DEBUG(("Could not find loaded class [%s]. Abort parsing of the class. ", class_name->as_C_string()));
+    DSU_WARN(("Cannot find old class [%s] error.", class_name->as_C_string()));
     return DSU_ERROR_OLD_CLASS_NOT_LOADED;
   }
 
@@ -439,7 +469,7 @@ DSUError DSUClass::resolve_new_version_by_dsu_thread(InstanceKlass* &new_version
 }
 
 // TODO, I am not sure whether we can resolve new version at safe point
-// To te removed in future
+// To be removed in future
 DSUError DSUClass::resolve_new_version_at_safe_point(InstanceKlass* &new_version, TRAPS) {
   ShouldNotReachHere();
   return DSU_ERROR_NONE;
@@ -964,6 +994,9 @@ void DSUClass::compute_and_set_fields(InstanceKlass* old_version,
 }
 
 
+// Prepare
+// 1). Allocate data for new version
+// 2). Set restricted methods for old version
 DSUError DSUClass::prepare(TRAPS) {
   HandleMark hm(THREAD);
   if (prepared()) {
@@ -1060,9 +1093,10 @@ DSUError DSUClass::prepare(TRAPS) {
   assert(new_version != NULL, "new version should not be null.");
 
   // prepare super classes of new version here
-  if (old_version != NULL) {
-    Javelus::prepare_super_class(old_version, CHECK_(DSU_ERROR_PREPARE_SUPER_FAILED));
-    Javelus::prepare_interfaces(old_version, CHECK_(DSU_ERROR_PREPARE_INTERFACES_FAILED));
+  // Super class of new version should be prepared
+  if (new_version != NULL) {
+    Javelus::prepare_super_class(new_version, CHECK_(DSU_ERROR_PREPARE_SUPER_FAILED));
+    Javelus::prepare_interfaces(new_version, CHECK_(DSU_ERROR_PREPARE_INTERFACES_FAILED));
   }
 
   ret = refresh_updating_type(old_version, new_version, THREAD);
@@ -2632,6 +2666,9 @@ DSUClassLoader* DSU::allocate_class_loader(Symbol* id, Symbol* lid, TRAPS) {
   return result;
 }
 
+void DSU::add_class(DSUClass* dsu_class) {
+  _classes_in_order->append(dsu_class);
+}
 
 DSU::~DSU() {
   DSUClassLoader* p = _first_class_loader;
@@ -2646,6 +2683,11 @@ DSU::~DSU() {
   if (_shared_stream_provider != NULL) {
     assert(_shared_stream_provider->is_shared(), "sanity check");
     delete _shared_stream_provider;
+  }
+
+  if (_classes_in_order != NULL) {
+    delete _classes_in_order;
+    _classes_in_order = NULL;
   }
 
   free_classes_to_relink();
@@ -3799,6 +3841,7 @@ void DSUDynamicPatchBuilder::append_added_class(char * line, TRAPS) {
 
   dsu_class->set_updating_type(DSU_CLASS_ADD);
   dsu_class->set_stream_provider(current_class_loader()->stream_provider());
+  dsu()->add_class(dsu_class);
 }
 
 void DSUDynamicPatchBuilder::append_modified_class(char * line, TRAPS) {
@@ -3807,6 +3850,7 @@ void DSUDynamicPatchBuilder::append_modified_class(char * line, TRAPS) {
   _current_class = dsu_class;
   dsu_class->set_updating_type(DSU_CLASS_NONE);
   dsu_class->set_stream_provider(current_class_loader()->stream_provider());
+  dsu()->add_class(dsu_class);
 }
 
 void DSUDynamicPatchBuilder::append_deleted_class(char * line, TRAPS) {
@@ -3814,6 +3858,7 @@ void DSUDynamicPatchBuilder::append_deleted_class(char * line, TRAPS) {
   DSUClass * dsu_class = current_class_loader()->allocate_class(class_name, CHECK);
   _current_class = dsu_class;
   dsu_class->set_updating_type(DSU_CLASS_DEL);
+  dsu()->add_class(dsu_class);
 }
 
 void DSUDynamicPatchBuilder::append_transformer(char * line, TRAPS) {
@@ -4192,31 +4237,13 @@ DSUClassLoader::~DSUClassLoader() {
 }
 
 DSUError DSUClassLoader::prepare(TRAPS) {
-  // rsolve the class loader first
+  // resolve the class loader first
   resolve(CHECK_(DSU_ERROR_RESOLVE_CLASS_LOADER_FAILED));
-
-  // than prepare all classes
-  for (DSUClass* dsu_class = first_class(); dsu_class != NULL; dsu_class = dsu_class->next()) {
-    DSUError ret = dsu_class->prepare(THREAD);
-
-    if (ret != DSU_ERROR_NONE) {
-      ResourceMark rm(THREAD);
-      DSU_WARN(("Preparing class %s results in an error, code is %d", dsu_class->name()->as_C_string(), ret));
-      return ret;
-    }
-
-    if (HAS_PENDING_EXCEPTION) {
-      return DSU_ERROR_PREPARE_DSUCLASS;
-    }
-  }
-
-  remove_unchanged_classes();
-
   return DSU_ERROR_NONE;
 }
 
 DSUClass *DSUClassLoader::find_class_by_name(Symbol *name) {
-  for (DSUClass* dsu_class = first_class(); dsu_class!=NULL; dsu_class=dsu_class->next()) {
+  for (DSUClass* dsu_class = first_class(); dsu_class != NULL; dsu_class = dsu_class->next()) {
     if (dsu_class->name() == name) {
       return dsu_class;
     }
@@ -4480,7 +4507,7 @@ DSUError  DSUClassLoader::load_new_version(Symbol* name, InstanceKlass* &new_cla
 
 
 void DSUClassLoader::add_class(DSUClass * klass) {
-  assert( klass->next() == NULL, "should not in any other list.");
+  assert(klass->next() == NULL, "should not in any other list.");
   if (_first_class == NULL) {
     assert(_last_class == NULL, "sanity check");
     _first_class = _last_class = klass;
@@ -4491,41 +4518,25 @@ void DSUClassLoader::add_class(DSUClass * klass) {
   }
 }
 
-void DSUClassLoader::remove_unchanged_classes() {
-  if (_first_class == NULL) {
+void DSUClassLoader::remove_class(DSUClass * klass) {
+  assert(find_class_by_name(klass->name()) == klass, "sanity check");
+  if (_first_class == klass) {
+    _first_class = klass->next();
+    if (_last_class == klass) {
+      _last_class = NULL;
+    }
     return;
-  } else if (_first_class == _last_class) {
-    // remove the first one
-    if (_first_class->prepared() && _first_class->updating_type() == DSU_CLASS_NONE) {
-      delete _first_class;
-      _first_class = _last_class = NULL;
-    }
-  } else {
-    DSUClass *p = _first_class->next();
-    DSUClass *q = _first_class;
-    // p is next
-    // q is previous
-    while (p != NULL) {
-      if (p->prepared() && p->updating_type() == DSU_CLASS_NONE) {
-        q->set_next(p->next());
-        if (_last_class == p) {
-          _last_class = q;
-        }
-        delete p;
-        p = q->next();
-      } else {
-        q = p;
-        p = p->next();
-      }
-    }
-    q = _first_class;
-    if (q->prepared() && q->updating_type() == DSU_CLASS_NONE) {
-      _first_class = q->next();
-      delete q;
-      if (_first_class == NULL) {
-        _last_class = NULL;
-      }
-    }
+  }
+
+  DSUClass* p = NULL;
+  for (p = _first_class; p->next() != klass; p = p->next()) {
+    //
+  }
+  assert(p != NULL && p->next() == klass, "sanity check");
+  p->set_next(klass->next());
+  klass->set_next(NULL);
+  if (_last_class == klass) {
+    _last_class = p;
   }
 }
 
@@ -5714,10 +5725,7 @@ void Javelus::install_return_barrier_single_thread(JavaThread * thread, intptr_t
               p2i(barrier)));
       if (current->is_interpreted_frame()) {
         Bytecodes::Code code = Bytecodes::code_at(current->interpreter_frame_method(), current->interpreter_frame_bcp());
-        if (!(code == Bytecodes::_invokespecial || code == Bytecodes::_invokevirtual || code == Bytecodes::_invokedynamic || code == Bytecodes::_invokeinterface)) {
-          current->print_on(tty);
-        }
-        assert(code == Bytecodes::_invokespecial || code == Bytecodes::_invokevirtual || code == Bytecodes::_invokedynamic || code == Bytecodes::_invokeinterface, "sanity check");
+        assert(code == Bytecodes::_invokespecial || code == Bytecodes::_invokevirtual || code == Bytecodes::_invokestatic || code == Bytecodes::_invokeinterface, "sanity check");
         const int length = Bytecodes::length_at(current->interpreter_frame_method(), current->interpreter_frame_bcp());
         Bytecode_invoke bi(methodHandle(current->interpreter_frame_method()), current->interpreter_frame_bci());
         TosState tos = as_TosState(bi.result_type());
@@ -5921,7 +5929,7 @@ class PickClassLoaderCLDClosure : public CLDClosure {
   Symbol* _class_name;
   ClassLoaderData* _loader_data;
  public:
-   PickClassLoaderCLDClosure(Symbol* class_name) : _class_name(class_name) {}
+   PickClassLoaderCLDClosure(Symbol* class_name) : _class_name(class_name), _loader_data(NULL) {}
    void do_cld(ClassLoaderData* cld);
    ClassLoaderData* loader_data() const { return _loader_data; }
 };
@@ -6154,11 +6162,46 @@ bool Javelus::transform_object_common_no_lock(Handle stale_object, TRAPS){
         // This is a pattern of Temp Version
         // We will fix it later.
         if (stale_klass->next_version() == NULL) {
-          // We enter here from an custom transformer method.
-          // see post_fix_stale_new_class
-          assert(stale_klass->previous_version() != NULL, "This may be an temp version and must have previous version or this is an object of a deleted class");
-          assert(stale_klass->previous_version()->stale_new_class() == stale_klass, "invariant");
-          return true;
+          // TODO
+          if (stale_klass->previous_version() != NULL) {
+            // We enter here from an custom transformer method.
+            // see post_fix_stale_new_class
+            assert(stale_klass->previous_version()->stale_new_class() == stale_klass, "invariant");
+            return true;
+          }
+          assert(stale_klass->dsu_has_been_deleted(), "this is an object of a deleted class");
+          assert(!stale_object->mark()->is_mixed_object(), "not implemented yet");
+
+          InstanceKlass* super_of_deleted_klass = stale_klass->superklass();
+          assert(super_of_deleted_klass != NULL, "sanity check");
+          while (super_of_deleted_klass != NULL
+              && super_of_deleted_klass->is_stale_class()
+              && super_of_deleted_klass->next_version() == NULL) {
+            assert(super_of_deleted_klass->dsu_has_been_deleted(), "must be deleted");
+            super_of_deleted_klass = super_of_deleted_klass->superklass();
+          }
+          assert(super_of_deleted_klass != NULL, "sanity check");
+          if (super_of_deleted_klass->is_stale_class()) {
+            super_of_deleted_klass = super_of_deleted_klass->next_version();
+          }
+          assert(super_of_deleted_klass != NULL, "sanity check");
+          assert(!super_of_deleted_klass->is_stale_class(), "sanity check");
+
+          guarantee(stale_klass->size_helper() >= super_of_deleted_klass->size_helper(), "not implemented");
+
+          DSU_TRACE(0x00001000,("Transforming Object: [delete2super] [%s->%s] ["PTR_FORMAT"] [%d : %d]",
+                stale_klass->name()->as_C_string(), super_of_deleted_klass->name()->as_C_string(),
+                p2i(stale_object()), c_dead_rn, t_crn));
+          run_transformer(
+              stale_object,
+              stale_object,
+              stale_object,
+              stale_klass,
+              super_of_deleted_klass,
+              super_of_deleted_klass,
+              CHECK_false);
+          transformed = true;
+          continue;
         }
 
         // 5 types;
