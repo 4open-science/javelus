@@ -973,7 +973,6 @@ void TemplateTable::aastore() {
   __ jcc(Assembler::zero, is_null);
 
   check_and_update_stale_object(rax, rbx);
-  type_narrow_check(rax, rbx);
 
   // Move subklass into rbx
   __ load_klass(rbx, rax);
@@ -3057,13 +3056,20 @@ void TemplateTable::check_and_update_stale_object(Register obj, Register temp) {
 
 void TemplateTable::type_narrow_check(Register obj, Register temp) {
   Label skip_slow_check;
+  assert_different_registers(obj, temp, rsp);
 
   __ load_klass(temp, obj);
   __ movl(temp, Address(temp, Klass::dsu_flags_offset()));
   __ andl(temp, DSU_FLAGS_CLASS_IS_TYPE_NARROWED_CLASS);
   __ jcc(Assembler::zero, skip_slow_check);// not a type narrowed class, skip slow type narrow check.
 
-  __ stop("We have not implement a full type narrow checking here. But type narrow error is very rare in practice.");
+  __ movptr(Address(rbp, frame::interpreter_frame_last_sp_offset * wordSize), NULL_WORD);
+  __ movq(temp, rsp);
+  __ andq(rsp, -16);     // align stack as required by push_CPU_state and call
+  __ push_CPU_state();
+  __ call_VM(noreg, CAST_FROM_FN_PTR(address, InterpreterRuntime::type_narrow_check), obj);
+  __ pop_CPU_state();
+  __ movq(rsp, temp);
 
   __ bind(skip_slow_check);
 }

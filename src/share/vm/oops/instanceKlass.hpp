@@ -771,6 +771,8 @@ class InstanceKlass: public Klass {
   bool dsu_has_been_added()     const { return _dsu_state == DSUState::dsu_has_been_added; }
   bool dsu_will_be_updated()    const { return _dsu_state >= DSUState::dsu_will_be_recompiled 
                                                   && _dsu_state <= DSUState::dsu_will_be_deleted; }
+  bool dsu_is_affected()        const { return _dsu_state == DSUState::dsu_is_affected; }
+
   bool dsu_will_be_swapped()    const { return _dsu_state == DSUState::dsu_will_be_swapped; }
   bool dsu_has_been_swapped()   const { return _dsu_state == DSUState::dsu_has_been_swapped; }
   bool dsu_will_be_redefined()  const { return _dsu_state == DSUState::dsu_will_be_redefined; }

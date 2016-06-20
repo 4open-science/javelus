@@ -498,10 +498,8 @@ void DSUClass::set_restricted_methods() {
   }
 }
 
-void DSUClass::set_check_flags_for_methods(InstanceKlass* old_version,
-  InstanceKlass* new_version, TRAPS) {
+void DSUClass::set_check_flags_for_methods(InstanceKlass* new_version, int min_vtable_length, TRAPS) {
   HandleMark hm(THREAD);
-
   assert(new_version != NULL, "new_version must not be null.");
   Array<Method*>* methods = new_version->methods();
 
@@ -523,6 +521,60 @@ void DSUClass::set_check_flags_for_methods(InstanceKlass* old_version,
 
     m->set_needs_stale_object_check();
     m->link_method_with_dsu_check(mh, CHECK);
+    if (m->is_private()) {
+      continue;
+    }
+    if (m->vtable_index() > min_vtable_length) {
+      m->set_needs_mixed_object_check();
+    }
+  }
+}
+
+void DSUClass::set_check_flags_for_fields(InstanceKlass* new_version, int min_object_size, TRAPS) {
+  HandleMark hm(THREAD);
+
+  const bool eager_update = Javelus::active_dsu()->is_eager_update();
+  const bool eager_update_pointers = Javelus::active_dsu()->is_eager_update_pointer();
+
+  const int new_fields_count = new_version->java_fields_count();
+
+  ConstantPool* new_constants = new_version->constants();
+
+  for (int i = 0; i < new_fields_count; i++) {
+    FieldInfo*  new_field = new_version->field(i);
+    u2 n_flag = new_field->access_flags();
+    u2 n_dsu_flag = new_field->dsu_flags();
+
+    Symbol* n_name = new_field->name(new_constants);
+    Symbol* n_sig  = new_field->signature(new_constants);
+
+    u4 n_offset     = new_field->offset();
+    BasicType n_field_type = FieldType::basic_type(n_sig);
+    int n_field_size = type2aelembytes(n_field_type);
+    int n_field_end  = n_offset + n_field_size;
+
+    if ((n_flag & JVM_ACC_STATIC) == 0) {
+      // this field is an instance field
+      // We compare end of field with minimal object size to decide possible MixNewField.
+      if (n_field_end > min_object_size) {
+        // this field is in the phantom object
+        if (eager_update) {
+          // no invalid checks but with phantom_field checks
+          n_dsu_flag = (u2)(n_dsu_flag | DSU_FLAGS_MEMBER_NEEDS_MIXED_OBJECT_CHECK);
+        } else if (eager_update_pointers) {
+          // n_dsu_flag is n flag
+        } else {
+          n_dsu_flag = (u2)(n_dsu_flag | DSU_FLAGS_MEMBER_NEEDS_MIXED_OBJECT_CHECK | DSU_FLAGS_MEMBER_NEEDS_STALE_OBJECT_CHECK);
+        }
+        new_field->set_dsu_flags(n_dsu_flag);
+      } else {
+        // this field is in the inplace object.
+        if (!(eager_update || eager_update_pointers)) {
+          n_dsu_flag = (u2)(n_dsu_flag | DSU_FLAGS_MEMBER_NEEDS_STALE_OBJECT_CHECK);
+        }
+        new_field->set_dsu_flags(n_dsu_flag);
+      }// end of inplace field
+    }// end of determining inplace or phantom fields.
   }
 }
 
@@ -551,147 +603,25 @@ void DSUClass::compute_youngest_common_super_class(InstanceKlass* old_version, I
     old_ycsc = old_ycsc->superklass();
   }
 
-  // after calculate ycsc, we can use HandleMark now
-
-  // before check whether this class is type narrowed due to a class,
-  // we check whether it removes an interface before.
-  compute_interfaces_information(old_version, new_version, CHECK);
-
-  {
-    HandleMark hm(THREAD);
-    // every class has an common super class, which is java.lang.Object.
-    assert(old_ycsc != NULL && new_ycsc != NULL, "should not be null");
-    assert(new_ycsc->name() == old_ycsc->name(), "invariant");
-
-    InstanceKlass* old_super = old_version->superklass();
-    InstanceKlass* new_super = new_version->superklass();
-
-    if (old_super != old_ycsc) {
-      // one super type has missed, the class must be type narrowed.
-      DSU_WARN(("Set a type narrowed class %s", new_version->name()->as_C_string()));
-      new_version->set_is_type_narrowed_class();
-    }
-
-    while(old_super != old_ycsc) {
-      if (!old_super->is_stale_class()) {
-        old_super->set_is_super_type_of_stale_class();
-        old_super->set_is_type_narrowing_relevant_type();
-      }
-      old_super = old_super->superklass();
-    }
-
-    while(new_super != new_ycsc) {
-      new_super->set_is_super_type_of_stale_class();
-      if (new_ycsc->is_type_narrowed_class()) {
-        DSU_WARN(("Set a type narrowed class %s", new_super->name()->as_C_string()));
-        new_super->set_is_type_narrowed_class();
-      }
-      new_super = new_super->superklass();
-    }
-  }
 
 }
 
-void DSUClass::compute_interfaces_information(InstanceKlass* old_version,
-    InstanceKlass* new_version,
-    TRAPS) {
-  ResourceMark rm(THREAD);
-  HandleMark hm(THREAD);
-  // we only set_is_super_type_of_stale_class for interfaces
-  // used by instanceof in compiler.
-  Array<Klass*>* old_interfaces = old_version->transitive_interfaces();
-  Array<Klass*>* new_interfaces = new_version->transitive_interfaces();
 
-  // same array
-  if (old_interfaces == new_interfaces) {
+void DSUClass::collect_super_classes_and_interfaces(InstanceKlass* klass, GrowableArray<InstanceKlass*>* supertypes) {
+  if (klass == NULL) {
     return;
   }
 
-  int old_length = old_interfaces->length();
-  int new_length = new_interfaces->length();
-
-  if (old_length == 0) {
-    // mark all new interfaces as super type of stale class
-    for(int j=0; j<new_length; j++) {
-      Klass* new_itfc = new_interfaces->at(j);
-      new_itfc->set_is_super_type_of_stale_class();
-    }
-    return;
+  if (klass->superklass() != NULL) {
+    supertypes->append_if_missing(klass->superklass());
+    collect_super_classes_and_interfaces(klass->superklass(), supertypes);
   }
 
-  if (new_length == 0) {
-    for(int i=0; i<old_length; i++) {
-      Klass* old_itfc = old_interfaces->at(i);
-      old_itfc->set_is_type_narrowing_relevant_type();
-      old_itfc->set_is_super_type_of_stale_class();
-    }
-    return;
-  }
-
-  assert(old_length != 0, "sanity check");
-  assert(new_length != 0, "sanity check");
-
-  int count = new_length;
-
-  int* new_states = NEW_RESOURCE_ARRAY(int, new_length);
-  memset(new_states, 0, new_length*sizeof(int));
-
-  enum{
-    init = 0,
-    common_interface = 1,
-    match_interface = 2,
-  };
-
-
-  for(int i=0; i<old_length; i++) {
-    Klass* old_itfc = old_interfaces->at(i);
-    // in case where old interface is not stale and type narrowed.
-    int j=0;
-    for(; j<new_length; j++) {
-      Klass* new_itfc = new_interfaces->at(j);
-      if (old_itfc == new_itfc) {
-        // common interface
-        new_states[j] = common_interface;
-        count--;
-        break;
-      }
-      if (old_itfc->name() == new_itfc->name()) {
-        // updated interface
-        DSU_WARN(("Set a type narrowed class %s", new_itfc->name()->as_C_string()));
-        new_itfc->set_is_type_narrowed_class();
-        new_states[j] = match_interface;
-        count--;
-        break;
-      }
-    }
-    if (j == new_length) {
-      // we break, so that the old_itfc may be a type narrowing relevant class
-      if (old_itfc->is_stale_class()) {
-        // set the corresponding new version as type narrowing relevant class
-        Klass* new_of_old_itfc = (InstanceKlass::cast(old_itfc)->next_version());
-        assert(new_of_old_itfc != NULL, "sanity check");
-        new_of_old_itfc->set_is_type_narrowing_relevant_type();
-        new_of_old_itfc->set_is_super_type_of_stale_class();
-      } else {
-        old_itfc->set_is_type_narrowing_relevant_type();
-        old_itfc->set_is_super_type_of_stale_class();
-      }
-      // anyway, we have to set the new class as type narrowed class
-      DSU_WARN(("Set a type narrowed class %s", new_version->name()->as_C_string()));
-      new_version->set_is_type_narrowed_class();
-    }
-  }
-
-  if (count == 0) {
-    return ;
-  }
-
-  // we have some new interface that is neither common or matched.
-  for(int i=0; i<new_length; i++) {
-    if (new_states[i] == 0) {
-      Klass* new_itfc = new_interfaces->at(i);
-      new_itfc->set_is_super_type_of_stale_class();
-    }
+  Array<Klass*>* interfaces = klass->local_interfaces();
+  for (int i = 0; i < interfaces->length(); i++) {
+    InstanceKlass* interface = InstanceKlass::cast(interfaces->at(i));
+    supertypes->append_if_missing(interface);
+    collect_super_classes_and_interfaces(interface, supertypes);
   }
 }
 
@@ -726,16 +656,7 @@ void DSUClass::compute_and_set_fields(InstanceKlass* old_version,
   // compute
   compute_and_cache_common_info(old_version, new_version, CHECK);
 
-  // TODO
-  // if (!new_version->is_initialized()) {
-  //   typeArrayOop r = oopFactory::new_typeArray(T_INT, 0, CHECK);
-  //   if (java_lang_Class::init_lock(old_version->java_mirror()) == NULL) {
-  //     tty->print_cr("Null ");
-  //   }
-  //   java_lang_Class::set_init_lock(old_version->java_mirror(), r);
-  // }
-
-  bool do_print = false;/*old_version->name()->starts_with("org/apache/catalina/core/ContainerBase")*/;
+  bool do_print = false;
 
   // We walk through the chain of evolution to find the minimal object size.
   const int min_object_size = this->min_object_size_in_bytes();
@@ -872,11 +793,14 @@ void DSUClass::compute_and_set_fields(InstanceKlass* old_version,
 
   compute_youngest_common_super_class(old_version, new_version, old_ycsc, new_ycsc, CHECK);
 
-  // TODO
+  // TODO: three cases
   if (old_ycsc == new_ycsc) {
+    // 1) unchanged class
     this->set_old_ycsc(old_ycsc);
     this->set_new_ycsc(new_ycsc);
   } else {
+    // 2) swapped class
+    // 3) redefined class
     this->set_old_ycsc(old_ycsc);
     this->set_new_ycsc(new_ycsc);
   }
@@ -1123,6 +1047,7 @@ DSUError DSUClass::prepare(TRAPS) {
     case DSU_CLASS_BOTH:
       // set flags for fields
       compute_and_set_fields(old_version, new_version,CHECK_(DSU_ERROR_TO_BE_ADDED));
+      collect_affected_types(old_version, new_version,CHECK_(DSU_ERROR_TO_BE_ADDED));
       // set flags for methods
       set_restricted_methods();
       resolve_transformer(CHECK_(DSU_ERROR_RESOLVE_TRANSFORMER_FAILED));
@@ -1136,10 +1061,6 @@ DSUError DSUClass::prepare(TRAPS) {
       break;
     case DSU_CLASS_NONE:
       DSU_WARN(("An unchanged class %s.", this->name()->as_C_string()));
-      // TODO, The classes may require to relink.
-      // Here, we only remove it from the class loader
-      // and append it during collect_classes_to_relink
-      // this->dsu_class_loader()->remove_class(this);
       break;
     case DSU_CLASS_UNKNOWN:
       break;
@@ -1942,9 +1863,6 @@ void DSUClass::swap_class(TRAPS) {
     old_version->oop_map_cache()->flush_obsolete_entries();
   }
 
-  //java_lang_Class::update_mirror(old_version, new_version);
-  //new_version->set_java_mirror(old_version->java_mirror());
-
   // as we swap the methods, we should update the vtable and itable accordingly
   update_subklass_vtable_and_itable(old_version, THREAD);
 
@@ -1955,10 +1873,6 @@ void DSUClass::swap_class(TRAPS) {
     InstanceKlass * java_lang_Class = InstanceKlass::cast(old_java_mirror->klass());
     Javelus::copy_fields(new_java_mirror, old_java_mirror, java_lang_Class);
   }
-
-#ifdef ASSERT
-  old_version->vtable()->verify(tty);
-#endif
 }
 
 
@@ -2153,6 +2067,51 @@ void DSUClass::relink_class(TRAPS) {
   old_version->set_dsu_state(DSUState::dsu_has_been_recompiled);
 }
 
+
+int compare_InstanceKlass(InstanceKlass* *left, InstanceKlass* *right) {
+  Symbol* old_name = (*left)->name();
+  Symbol* new_name = (*right)->name();
+  int ret = old_name->fast_compare(new_name);
+  if (ret != 0) {
+    return ret;
+  }
+  assert((*left)->class_loader_data() == (*right)->class_loader_data(), "sanity check");
+  return (*left)->born_rn() - (*right)->born_rn();
+}
+
+
+void DSUClass::check_and_set_flags_for_type_narrowing_check(InstanceKlass* old_version, InstanceKlass* new_version, TRAPS) {
+  ResourceMark rm(THREAD);
+
+  int min_vtable_length = this->min_vtable_size();
+  int min_object_size_in_bytes = this->min_object_size_in_bytes();
+
+  if (_type_narrowing_relevant_classes != NULL && _type_narrowing_relevant_classes->length() > 0) {
+    DSU_WARN(("Set a type narrowed class %s", new_version->name()->as_C_string()));
+    new_version->set_is_type_narrowed_class();
+
+    for (int i = 0; i < _type_narrowing_relevant_classes->length(); i++) {
+      InstanceKlass* old_supertype = _type_narrowing_relevant_classes->at(i);
+      DSU_DEBUG(("Set a type narrowing relevant class %s", old_supertype->name()->as_C_string()));
+      old_supertype->set_is_super_type_of_stale_class();
+      old_supertype->set_is_type_narrowing_relevant_type();
+      set_check_flags_for_methods(old_supertype, min_vtable_length, CHECK);
+      set_check_flags_for_fields(old_supertype, min_object_size_in_bytes, CHECK);
+    }
+  }
+
+  if (_super_classes_of_stale_class != NULL && _super_classes_of_stale_class->length() > 0) {
+    for (int i = 0; i < _super_classes_of_stale_class->length(); i++) {
+      InstanceKlass* new_supertype = _super_classes_of_stale_class->at(i);
+      DSU_DEBUG(("Set a super type of stale class %s", new_supertype->name()->as_C_string()));
+      new_supertype->set_is_super_type_of_stale_class();
+      set_check_flags_for_methods(new_supertype, min_vtable_length, CHECK);
+      set_check_flags_for_fields(new_supertype, min_object_size_in_bytes, CHECK);
+    }
+  }
+}
+
+
 void DSUClass::redefine_class(TRAPS) {
   HandleMark hm(THREAD);
   ResourceMark rm(THREAD);
@@ -2226,9 +2185,11 @@ void DSUClass::redefine_class(TRAPS) {
 #endif
   }
 
-
   // copy values of static fields from old instanceKlass to new instanceKlass
   apply_default_class_transformer(old_version, new_version, CHECK);
+
+  // Check and set flags for type narrowing check
+  check_and_set_flags_for_type_narrowing_check(old_version, new_version, CHECK);
 
   // Some fix action, to be refactor
   post_fix_old_version            (old_version, new_version, CHECK);
@@ -2383,44 +2344,9 @@ void DSUClass::post_fix_old_version(InstanceKlass* old_version,
 }
 
 void DSUClass::post_fix_new_version(InstanceKlass* old_version,
-  InstanceKlass* new_version,
-  TRAPS) {
-  int min_vtable_length = this->min_vtable_size();
-  assert(min_vtable_length > 0, "must be preseted");
-
-  // XXX This could be moved at loading time.
-  // fields definition has changed
-  // need create c1 and c2 and check mix new field
-  Array<Method*>* methods = new_version->methods();
-  int length = methods->length();
-  for(int i=0; i<length; i++) {
-    Method* method = methods->at(i);
-    if (method->is_static()) {
-      continue;
-    }
-    method->set_needs_stale_object_check();
-    if (method->is_private()) {
-      continue;
-    }
-    if (method->vtable_index() > min_vtable_length/*old_vtable_length*/) {
-      method->set_needs_mixed_object_check();
-    }
-  }
-  // TODO
-  set_check_flags_for_methods(old_version, new_version, CHECK);
-
-  InstanceKlass* superik = new_version->superklass();
-  assert(superik != NULL, "should not be null");
-  int dead_rn = superik->dead_rn();
-  if (dead_rn == this->to_rn()) {
-    // a swapped super class
-    new_version->set_super(superik->next_version());
-    new_version->initialize_supers(superik->next_version(), THREAD);
-  }
-
+  InstanceKlass* new_version, TRAPS) {
   assert(new_version->java_mirror() != NULL, "Now the java mirror contains static fields.");
-
-  // we also set transfromer here
+  // we also set transformer here
   {
     new_version->set_class_transformer(class_transformer_method());
     new_version->set_class_transformer_args(class_transformer_args());
@@ -2430,36 +2356,43 @@ void DSUClass::post_fix_new_version(InstanceKlass* old_version,
   }
 
   new_version->set_is_super_type_of_stale_class();
-  //
   new_version->set_is_new_redefined_class();
   // We should adjust the born rn of scratch class to increment by one.
   new_version->set_born_rn(this->to_rn());
 
+  int min_vtable_length = this->min_vtable_size();
+  assert(min_vtable_length > 0, "must be preseted");
+  set_check_flags_for_methods(new_version, min_vtable_length, CHECK);
+
+
   // XXX
   update_jmethod_ids(new_version, THREAD);
 
-
-  const int old_size_in_words = old_version->size_helper();
-  const int new_size_in_words = new_version->size_helper();
-  const int size_delta_in_words = old_size_in_words - new_size_in_words;
-  if (size_delta_in_words > 0 && size_delta_in_words < (int) CollectedHeap::min_fill_size()) {
-    // TODO make new size larger to avoid zap
-    new_version->set_layout_helper(old_version->layout_helper());
-    new_version->set_copy_to_size(old_version->layout_helper());
-    if (this->stale_new_class() != NULL) {
-      this->stale_new_class()->set_layout_helper(old_version->layout_helper());
-      this->stale_new_class()->set_copy_to_size(old_version->layout_helper());
+  {
+    // if the new object size is less than the old object size
+    // and the delta is less than min_fill_size, we cannot shrink the old object.
+    const int old_size_in_words = old_version->size_helper();
+    const int new_size_in_words = new_version->size_helper();
+    const int size_delta_in_words = old_size_in_words - new_size_in_words;
+    if (size_delta_in_words > 0 && size_delta_in_words < (int) CollectedHeap::min_fill_size()) {
+      // TODO make new size larger to avoid zap
+      new_version->set_layout_helper(old_version->layout_helper());
+      new_version->set_copy_to_size(old_version->layout_helper());
+      if (this->stale_new_class() != NULL) {
+        this->stale_new_class()->set_layout_helper(old_version->layout_helper());
+        this->stale_new_class()->set_copy_to_size(old_version->layout_helper());
+      }
+      assert(this->new_inplace_new_class() == NULL, "must not be mixed object");
+      assert(new_version->size_helper() == old_version->size_helper(), "must be equal");
     }
-    assert(this->new_inplace_new_class() == NULL, "must not be mixed object");
-    assert(new_version->size_helper() == old_version->size_helper(), "must be equal");
   }
 
+  // in case a super class have been swapped.
   check_and_update_swapped_super_classes(new_version);
 }
 
 void DSUClass::post_fix_new_inplace_new_class(InstanceKlass* old_version,
-  InstanceKlass* new_version,
-  TRAPS) {
+  InstanceKlass* new_version, TRAPS) {
   HandleMark   hm(THREAD);
   ResourceMark rm(THREAD);
 
@@ -2769,7 +2702,7 @@ void DSU::check_and_append_relink_class(Klass* k, TRAPS) {
                 // For class unresolved here and resolved before updating, we will implement a incremental approach.
                 // TODO Do we can only unresolved dead class here?
                 InstanceKlass* aikh = InstanceKlass::cast(entry);
-                if (aikh->dsu_will_be_swapped() || aikh->dsu_will_be_redefined()) {
+                if (aikh->dsu_will_be_swapped() || aikh->dsu_will_be_redefined() || aikh->dsu_is_affected()) {
                   should_relink = true;
                 }
               }
@@ -2798,7 +2731,8 @@ void DSU::check_and_append_relink_class(Klass* k, TRAPS) {
               Method* m = e->f2_as_vfinal_method();
               assert(m != NULL, "sanity check");
               if (m->method_holder()->dsu_will_be_swapped()
-                  && m->method_holder()->dsu_will_be_redefined()) {
+                  || m->method_holder()->dsu_will_be_redefined()
+                  || m->method_holder()->dsu_is_affected()) {
                 should_relink = true;
                 assert(false, "shit happens");
                 break;
@@ -3386,147 +3320,6 @@ DSUClass* DSU::find_class_by_name_and_loader(Symbol* name, Handle loader) {
   return NULL;
 }
 
-int compare_InstanceKlass(InstanceKlass* *left, InstanceKlass* *right) {
-  return 0;
-}
-
-// Versioned Class Hierarchy
-// VCH is used to ensure type safe in the lazy updating of Javelus.
-// So, we have no need to handle swapped class.
-// We simply treat them as unchanged classes.
-void mark_single_class(DSUClass * dsu_class, TRAPS) {
-  DSUClassUpdatingType type = dsu_class->updating_type();
-  switch(type) {
-    case DSU_CLASS_MC:
-    case DSU_CLASS_BC:
-      return;
-    case DSU_CLASS_SMETHOD:
-    case DSU_CLASS_SFIELD:
-    case DSU_CLASS_SBOTH:
-    case DSU_CLASS_METHOD:
-    case DSU_CLASS_FIELD:
-    case DSU_CLASS_BOTH:
-     break;
-    case DSU_CLASS_DEL:
-    case DSU_CLASS_NONE:
-    case DSU_CLASS_UNKNOWN:
-      return;
-    default:
-      ShouldNotReachHere();
-  }
-
-  HandleMark hm(THREAD);
-  ResourceMark rm(THREAD);
-
-  InstanceKlass* old_version = dsu_class->old_version_class();
-  InstanceKlass* new_version = dsu_class->new_version_class();
-
-  assert(old_version != NULL, "old version should not be null.");
-  assert(new_version != NULL, "new version should not be null.");
-
-  GrowableArray<InstanceKlass*>* no_beta_super_of_new_version = new GrowableArray<InstanceKlass*>(10);
-  GrowableArray<InstanceKlass*>* all_super_of_new_version = new GrowableArray<InstanceKlass*>(10);
-
-  DSU::collect_all_super_classes(no_beta_super_of_new_version, new_version, true, false, CHECK);
-  DSU::collect_all_super_classes(all_super_of_new_version, new_version, true, true, CHECK);
-
-  //TODO no sort, the set would be very small.
-  no_beta_super_of_new_version->sort(&compare_InstanceKlass);
-  all_super_of_new_version->sort(&compare_InstanceKlass);
-
-  // Here is a simple implementation,
-  // we may set flags for a single class many times.
-  int all_length = all_super_of_new_version->length();
-  int no_beta_length = no_beta_super_of_new_version->length();
-
-  assert(all_length > no_beta_length, "sanity check");
-
-  int all_index = 0;
-  int no_beta_index = 0;
-
-  assert(!new_version->is_type_narrowed_class(), "we have not set this flag");
-
-  while(true) {
-    if (no_beta_index >= no_beta_length)
-      break;
-
-    assert(no_beta_index <= all_index, "sanity check");
-
-    InstanceKlass* no_beta_ikh = all_super_of_new_version->at(no_beta_index);
-
-    while(all_index <= all_length) {
-      InstanceKlass* all_ikh = all_super_of_new_version->at(all_index);
-      int ret = compare_InstanceKlass(&no_beta_ikh, &all_ikh);
-      if (ret == 0) {
-        // all_ikh exists in all and no beta
-        all_index++;
-        break;
-      } else if (ret < 0) {
-        all_index++;
-        // all_ikh only exists in all
-        // may be a type narrowing relevant class if it is not stale.
-        if (!all_ikh->is_stale_class()) {
-          // TODO, we assume that stale class cannot be executed,
-          // i.e., no old code can be executed.
-          //if (no_beta_super_of_new_version->contains(all_ikh)) {
-            // ikh is only reachable by following beta edge.
-            all_ikh->set_is_type_narrowing_relevant_type();
-            // TODO we should to set flags for type narrowing checking.
-            DSU_WARN(("Set a type narrowed class %s", new_version->name()->as_C_string()));
-            new_version->set_is_type_narrowed_class();
-          //}
-        }
-      } else {
-        break;
-      }
-    }
-    no_beta_index++;
-  }
-
-}
-
-void DSU::mark_versioned_class_hierarchy(TRAPS) {
-  this->classes_do(&mark_single_class, CHECK);
-}
-
-// Collect all super types of the klass.
-// in this method.
-void DSU::collect_all_super_classes(GrowableArray<InstanceKlass*>* results,
-    InstanceKlass* klass, bool include_alpha, bool include_beta, TRAPS) {
-  // NO Handle Marks
-
-  int queue_head = results->length();
-  results->append(klass);
-
-  while(queue_head < results->length()) {
-    InstanceKlass* current_klass = results->at(queue_head);
-    queue_head ++;
-    InstanceKlass* super_klass = current_klass->superklass();
-    if (super_klass != NULL) {
-      // versioned class hierarchy is a graph
-      if (!results->contains(super_klass)) {
-        results->append(super_klass);
-      }
-    }
-
-    if (include_alpha) {
-      super_klass = current_klass->next_version();
-      if (super_klass != NULL) {
-        if (!results->contains(super_klass)) {
-          results->append(super_klass);
-        }
-      }
-    }
-    if (include_beta) {
-      super_klass = current_klass->previous_version();
-      if (super_klass != NULL) {
-        if (!results->contains(super_klass)) {
-          results->append(super_klass);
-        }
-      }
-    }
-  }
-}
 
 // -------------------- DSUStreamProvider -----------------------
 
@@ -4567,12 +4360,107 @@ DSUClass::DSUClass()
   _match_static_fields(NULL),
   _match_reflections(NULL),
   _resolved_reflections_name_and_sig(NULL),
-  _resolved_reflections(NULL) {}
+  _resolved_reflections(NULL),
+  _type_narrowing_relevant_classes(NULL),
+  _super_classes_of_stale_class(NULL) {}
 
 void DSUClass::print() {
 
 }
 
+void DSUClass::add_type_narrowing_relevant_class(InstanceKlass* klass) {
+  if (_type_narrowing_relevant_classes == NULL) {
+    _type_narrowing_relevant_classes = new (ResourceObj::C_HEAP, mtInternal) GrowableArray<InstanceKlass*>(25, true);
+  }
+  klass->set_dsu_state(DSUState::dsu_is_affected);
+  _type_narrowing_relevant_classes->append_if_missing(klass);
+}
+
+
+void DSUClass::add_super_class_of_stale_class(InstanceKlass* klass) {
+  if (_super_classes_of_stale_class == NULL) {
+    _super_classes_of_stale_class = new (ResourceObj::C_HEAP, mtInternal) GrowableArray<InstanceKlass*>(25, true);
+  }
+  klass->set_dsu_state(DSUState::dsu_is_affected);
+  _super_classes_of_stale_class->append_if_missing(klass);
+}
+
+
+void DSUClass::collect_affected_types(InstanceKlass* old_version, InstanceKlass* new_version, TRAPS) {
+  ResourceMark rm(THREAD);
+  // TODO move to a single method
+  // set type narrowing class
+  GrowableArray<InstanceKlass*>* supertypes_of_old_version = new GrowableArray<InstanceKlass*>(10);
+  GrowableArray<InstanceKlass*>* supertypes_of_new_version = new GrowableArray<InstanceKlass*>(10);
+
+  collect_super_classes_and_interfaces(old_version, supertypes_of_old_version);
+  collect_super_classes_and_interfaces(new_version, supertypes_of_new_version);
+
+  int length = supertypes_of_old_version->length();
+  for (int i = 0; i < length; i++) {
+    InstanceKlass* supertype = supertypes_of_old_version->at(i);
+    if (supertype->is_stale_class() && supertype->next_version() == NULL) {
+#ifdef ASSERT
+      int current_length = supertypes_of_old_version->length();
+#endif
+      collect_super_classes_and_interfaces(supertype->next_version(), supertypes_of_old_version);
+#ifdef ASSERT
+      int updated_length = supertypes_of_old_version->length();
+      for (int j = current_length; j < updated_length; j++) {
+        assert(!supertypes_of_old_version->at(j)->is_stale_class(), "should not be stale");
+      }
+#endif
+    }
+  }
+
+#ifdef ASSERT
+  for (int i = 0; i < supertypes_of_new_version->length(); i++) {
+    InstanceKlass* supertype = supertypes_of_new_version->at(i);
+    assert(!supertype->is_stale_class(), "should not be stale class");
+  }
+#endif
+
+  supertypes_of_old_version->sort(compare_InstanceKlass);
+  supertypes_of_new_version->sort(compare_InstanceKlass);
+
+  {
+    int old_length = supertypes_of_old_version->length();
+    int new_length = supertypes_of_new_version->length();
+
+    int old_index = 0;
+    int new_index = 0;
+
+    while (old_index < old_length) {
+      InstanceKlass* old_supertype = supertypes_of_old_version->at(old_index);
+
+      int ret = -1;
+      while (new_index < new_length) {
+        InstanceKlass* new_supertype = supertypes_of_new_version->at(new_index);
+        ret = compare_InstanceKlass(&old_supertype, &new_supertype);
+        if (ret == 0) { // in both hierarchies
+          new_index++;
+          break;
+        } else if (ret < 0) { // only in the old hierarchy
+          break;
+        } else { // only in the new hierarchy
+          new_index++;
+          assert(!new_supertype->is_stale_class(), "sanity check");
+          add_super_class_of_stale_class(new_supertype);
+          continue;
+        }
+      }
+
+      if (ret < 0) {
+        // old super is only in the old hierarchy
+        if (!old_supertype->is_stale_class()) {
+          add_type_narrowing_relevant_class(old_supertype);
+        }
+      }
+
+      old_index++;
+    }
+  }
+}
 
 void DSUClass::append_match_reflection(Symbol* old_name, Symbol* old_sig,
     Symbol* new_name, Symbol* new_sig, Symbol* new_class_name) {

@@ -717,6 +717,70 @@ IRT_ENTRY(void, InterpreterRuntime::update_stale_object(JavaThread* thread, oopD
   }
 IRT_END
 
+IRT_ENTRY(void, InterpreterRuntime::type_narrow_check(JavaThread* thread, oopDesc* recv))
+  HandleMark hm(thread);
+  Handle obj (thread,recv);
+
+  if (obj.is_null()) {
+    return;
+  }
+
+  if (!obj->is_instance()) {
+    return;
+  }
+
+  InstanceKlass* obj_klass = (InstanceKlass*)obj->klass();
+  if (obj_klass->is_stale_class()) {
+    Javelus::transform_object_common(obj, thread);
+    obj_klass = (InstanceKlass*)obj->klass();
+  }
+
+  assert(!obj_klass->is_stale_class(), "sanity check");
+  if (obj_klass->is_inplace_new_class()) {
+    obj_klass = obj_klass->next_version();
+  }
+
+  Klass* target_class = NULL;
+  methodHandle m (thread, method(thread));
+  Bytecodes::Code code  = Bytecodes::code_at(m(), bcp(thread));
+  switch (code) {
+    case Bytecodes::_invokespecial:
+    case Bytecodes::_invokevirtual:
+    case Bytecodes::_invokeinterface: {
+      Bytecode_invoke bi (m, bci(thread));
+      methodHandle mh = bi.static_target(CHECK);
+      target_class = mh->method_holder();
+      break; }
+    case Bytecodes::_instanceof: {
+      Bytecode_instanceof io (m(), bcp(thread));
+      target_class = m->constants()->klass_at(io.index(), CHECK);
+      break; }
+    case Bytecodes::_putfield:
+    case Bytecodes::_getfield: {
+      Bytecode_field bf(m, bci(thread));
+      // We must load class, initialize class and resolvethe field
+      fieldDescriptor result; // initialize class if needed
+      constantPoolHandle constants(THREAD, m->constants());
+      LinkResolver::resolve_field_access(result, constants, bf.index(), Bytecodes::java_code(code), CHECK);
+      target_class = result.field_holder();
+      break; }
+    default:
+      ShouldNotReachHere();
+      break;
+  }
+
+  assert(target_class != NULL, "sanity check");
+
+  if (!obj_klass->is_subtype_of(target_class)) {
+    ResourceMark rm(thread);
+    char* message = SharedRuntime::generate_class_cast_message(
+        thread, obj->klass()->external_name());
+
+    // create exception
+    THROW_MSG(vmSymbols::java_lang_ClassCastException(), message);
+  }
+IRT_END
+
 // for implicit update by dynamic method call
 // we need to update the constant pool cache accordingly.
 IRT_ENTRY(void, InterpreterRuntime::update_stale_object_and_reresolve_method(JavaThread* thread, oopDesc* recv))

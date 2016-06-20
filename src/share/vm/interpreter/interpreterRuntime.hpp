@@ -137,6 +137,7 @@ class InterpreterRuntime: AllStatic {
   static void    invoke_return_barrier_with_oop(JavaThread* thread, oopDesc* return_value);
   static void    update_stale_object(JavaThread* thread, oopDesc* obj);
   static void    update_stale_object_and_reresolve_method(JavaThread* thread, oopDesc* obj);
+  static void    type_narrow_check(JavaThread* thread, oopDesc* obj);
 
   // Breakpoints
   static void _breakpoint(JavaThread* thread, Method* method, address bcp);

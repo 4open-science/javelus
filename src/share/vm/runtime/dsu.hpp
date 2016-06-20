@@ -367,6 +367,17 @@ private:
   GrowableArray<Symbol*>* _match_reflections;
   GrowableArray<Symbol*>* _resolved_reflections_name_and_sig;
   GrowableArray<jobject>* _resolved_reflections;
+
+  //    A           A 
+  //   / \         / \
+  //  B   C   ==> B   C
+  //  |               |
+  //  D               D'
+  // B is a type narrowing relevant class and also a super class of a stale class
+  // C is a super class of a stale class.
+  // Both B and C are subject to stale object check
+  GrowableArray<InstanceKlass*>* _type_narrowing_relevant_classes;
+  GrowableArray<InstanceKlass*>* _super_classes_of_stale_class;
 public:
   DSUClass();
   ~DSUClass();
@@ -409,13 +420,13 @@ public:
     InstanceKlass* &old_ycsc,
     InstanceKlass* &new_ycsc, TRAPS);
 
-  static void compute_interfaces_information(InstanceKlass* old_version,
-    InstanceKlass* new_version,
-    TRAPS);
+  static void collect_super_classes_and_interfaces(InstanceKlass* klass, GrowableArray<InstanceKlass*>* supertypes);
 
+
+  void check_and_set_flags_for_type_narrowing_check(InstanceKlass* old_version, InstanceKlass* new_version, TRAPS);
   // set flags for methods;
-  static void set_check_flags_for_methods(InstanceKlass* old_version,
-    InstanceKlass* new_version, TRAPS);
+  static void set_check_flags_for_methods(InstanceKlass* new_version, int min_vtable_length, TRAPS);
+  static void set_check_flags_for_fields(InstanceKlass* new_version, int min_object_size, TRAPS);
   void set_restricted_methods();
 
   // changed classes and deleted classes have old versions
@@ -489,6 +500,9 @@ public:
 
   static void check_and_update_swapped_super_classes(InstanceKlass* this_class);
 
+  void add_type_narrowing_relevant_class(InstanceKlass* klass);
+  void add_super_class_of_stale_class(InstanceKlass* klass);
+  void collect_affected_types(InstanceKlass* old_version, InstanceKlass* new_version, TRAPS);
   // copy from jvmtiRedefineClasses
   void update_jmethod_ids(InstanceKlass* new_version, TRAPS);
   void mark_old_and_obsolete_methods(TRAPS);
@@ -869,17 +883,6 @@ public:
   DSUClassLoader* find_class_loader_by_id(Symbol* id);
   DSUClassLoader* find_class_loader_by_loader(Handle loader);
   DSUClassLoader* find_or_create_class_loader_by_loader(Handle loader, TRAPS);
-
-  void mark_versioned_class_hierarchy(TRAPS);
-
-  // helper function to BFS iterate versioned class hierarchy backward
-  // and collect all needed super classes
-  // we have no need to consider interface,
-  // as all interface invocation has a dynamic check.
-  static void collect_all_super_classes(GrowableArray<InstanceKlass*>* results, 
-          InstanceKlass* klass,
-          bool include_alpha,
-          bool include_beta, TRAPS);
 
   virtual void print();
 };

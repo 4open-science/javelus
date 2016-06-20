@@ -42,6 +42,7 @@ public:
     dsu_has_been_swapped,
     dsu_has_been_redefined,
     dsu_has_been_deleted,
+    dsu_is_affected,
   };
 };
 
