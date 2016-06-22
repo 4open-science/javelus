@@ -1260,7 +1260,8 @@ void InstanceKlass::call_class_initializer_impl(instanceKlassHandle this_oop, TR
     if (class_transformer.is_null()) {
       return;
     }
-    DSU_DEBUG(("Run class transformer for class [%s].", this_oop->name()->as_C_string()));
+    const char * type = class_transformer() == this_oop->class_initializer() ? "class initializer" : " class transformer";
+    DSU_DEBUG(("Run %s for class [%s].", type, this_oop->name()->as_C_string()));
     Array<u1>* transformer_args = this_oop->class_transformer_args();
     int length = 0;
     if (transformer_args != NULL) {
@@ -1291,7 +1292,7 @@ void InstanceKlass::call_class_initializer_impl(instanceKlassHandle this_oop, TR
       Handle h_e(THREAD, PENDING_EXCEPTION);
       java_lang_Throwable::print(h_e, tty);
       java_lang_Throwable::print_stack_trace(h_e(), tty);
-      DSU_WARN(("Run class transformer for class [%s] fail.",this_oop->name()->as_C_string()));
+      DSU_WARN(("Run %s for class [%s] fail.", type, this_oop->name()->as_C_string()));
     }
     return ;
   }

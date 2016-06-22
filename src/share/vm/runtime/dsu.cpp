@@ -417,6 +417,10 @@ DSUError DSUClass::resolve_old_version(InstanceKlass* &old_version, TRAPS) {
     }
   }
 
+  if (!old_version->is_initialized()) {
+    DSU_WARN(("Resolve an old class %s that is not initialized", class_name->as_C_string()));
+  }
+
   set_old_version(old_version);
   assert(old_version != NULL, "old version should not be null.");
   return DSU_ERROR_NONE;
@@ -765,6 +769,9 @@ void DSUClass::compute_and_set_fields(InstanceKlass* old_version,
             m_flags |= 0x02;
           }
 
+          if (do_print) {
+            tty->print_cr("[DSU] Find a matched instance field %s %s", o_name->as_C_string(), o_sig->as_C_string());
+          }
           explode_int_to(o_offset, &match_fields[match_instance_index + DSUClass::matched_field_old_offset]);
           explode_int_to(n_offset, &match_fields[match_instance_index + DSUClass::matched_field_new_offset]);
           match_fields[match_instance_index + DSUClass::matched_field_flags] = m_flags;
@@ -772,6 +779,9 @@ void DSUClass::compute_and_set_fields(InstanceKlass* old_version,
           match_instance_index += DSUClass::next_matched_field;
           break;
         } else if (((n_flag & JVM_ACC_STATIC) != 0 ) && ((o_flag & JVM_ACC_STATIC) != 0)) {
+          if (do_print) {
+            tty->print_cr("[DSU] Find a matched static field %s %s", o_name->as_C_string(), o_sig->as_C_string());
+          }
           // a pair of match static fields
           match_static_index -= DSUClass::next_matched_field;
           explode_int_to(o_offset, &match_fields[match_static_index + DSUClass::matched_field_old_offset]);
@@ -2217,6 +2227,9 @@ void DSUClass::install_new_version(InstanceKlass* old_version, InstanceKlass* ne
 }
 
 void DSUClass::apply_default_class_transformer(InstanceKlass* old_version, InstanceKlass* new_version, TRAPS) {
+  if (!old_version->is_initialized()) {
+    return;
+  }
   int count = this->match_static_count();
   if (count == 0) {
     return;
@@ -2348,8 +2361,13 @@ void DSUClass::post_fix_new_version(InstanceKlass* old_version,
   assert(new_version->java_mirror() != NULL, "Now the java mirror contains static fields.");
   // we also set transformer here
   {
-    new_version->set_class_transformer(class_transformer_method());
-    new_version->set_class_transformer_args(class_transformer_args());
+    if (old_version->is_initialized()) {
+      new_version->set_class_transformer(class_transformer_method());
+      new_version->set_class_transformer_args(class_transformer_args());
+    } else {
+      new_version->set_class_transformer(new_version->class_initializer());
+      new_version->set_class_transformer_args(NULL);
+    }
 
     new_version->set_object_transformer(object_transformer_method());
     new_version->set_object_transformer_args(object_transformer_args());
@@ -6357,21 +6375,15 @@ void run_default_transformer(Handle inplace_object, Handle old_phantom_object, H
   bool reallocate_phantom = !from_simple && !to_simple && old_phantom_object == new_phantom_object && new_phantom_size_in_bytes < old_phantom_size_in_bytes;
 
   if (matched_fields == NULL) {
-    {
-      // This should be done atomic if we have a concurrent gc.
-      // The thread should be in VM or at safe point.
-      assert(old_phantom_klass->stale_new_class() != NULL, "sanity check");
-      inplace_object->set_klass(old_phantom_klass->stale_new_class());
-      if (link) {
-        Javelus::link_mixed_object(inplace_object, new_phantom_object, CHECK);
-        assert(inplace_object->mark()->is_mixed_object(), "sanity check");
-      } else if (relink) {
-        Javelus::relink_mixed_object(inplace_object, old_phantom_object, new_phantom_object, CHECK);
-      } else if (unlink_mixed) {
-        Javelus::unlink_mixed_object(inplace_object, old_phantom_object, CHECK);
-      }
-      // now the object may is a simple object or a mixed object with empty fields.
+    if (link) {
+      Javelus::link_mixed_object(inplace_object, new_phantom_object, CHECK);
+      assert(inplace_object->mark()->is_mixed_object(), "sanity check");
+    } else if (relink) {
+      Javelus::relink_mixed_object(inplace_object, old_phantom_object, new_phantom_object, CHECK);
+    } else if (unlink_mixed) {
+      Javelus::unlink_mixed_object(inplace_object, old_phantom_object, CHECK);
     }
+    // now the object may is a simple object or a mixed object with empty fields.
     return;
   }
 
