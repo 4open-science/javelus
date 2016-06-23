@@ -470,6 +470,8 @@ public:
   void define_class(TRAPS);
 
 
+  static InstanceKlass* allocate_stale_new_class_for_deleted_class(InstanceKlass* old_version, TRAPS);
+
   void apply_default_class_transformer(InstanceKlass* old_version,
     InstanceKlass* new_version, TRAPS);
 

@@ -1957,44 +1957,88 @@ void DSUClass::undefine_class(TRAPS) {
   //TODO do nothing for CV(Concurrent Version)
   //Here, we only mark methods as invalid members.
   //since only dynamic dispatching can trigger deleted members.
-  InstanceKlass* ik = this->old_version_class();
-  if (ik == NULL) {
+  InstanceKlass* old_version = this->old_version_class();
+  if (old_version == NULL) {
     return ;
   }
-  if (!ik->is_linked()) {
+
+  // should 
+  if (!old_version->is_linked()) {
     return;
   }
 
+  assert(old_version->is_linked() || old_version->is_initialized(), "sanity check");
 
-  ik->set_dsu_state(DSUState::dsu_has_been_deleted);
+  old_version->set_dsu_state(DSUState::dsu_has_been_deleted);
 
-  ik->set_is_stale_class();
-  //TODO, It seems that we need cast an object of a deleted class to its alive parent class.
-  //ik->set_force_update(true);
-  ik->set_dead_rn(this->to_rn());
+  old_version->set_is_stale_class();
+  old_version->set_dead_rn(this->to_rn());
 
 
   // 1). We first make all methods defined in deleted class non-executable.
   this->mark_old_and_obsolete_methods(CHECK);
 
   // 2). Make all entries in the virtual table inherited from super class to be
-  klassVtable * vtable = ik->vtable();
-  const int super_vtable_length = InstanceKlass::cast(ik->super())->vtable_length();
-  for (int i=0; i<super_vtable_length; i++) {
+  klassVtable * vtable = old_version->vtable();
+  assert(old_version->super() != NULL, "sanity check");
+  const int super_vtable_length = InstanceKlass::cast(old_version->super())->vtable_length();
+  for (int i = 0; i < super_vtable_length; i++) {
     Method* method = vtable->method_at(i);
-    InstanceKlass * method_ik = method->method_holder();
-    if (method_ik->dsu_has_been_redefined()) {
-      InstanceKlass * new_ik = method_ik->next_version();
+    InstanceKlass * method_holder = method->method_holder();
+    if (method_holder->dsu_has_been_redefined()) {
+      InstanceKlass * new_method_holder = method_holder->next_version();
       // TODO, here should be optimized, allocate a new vtable is unnecessary.
-      (*vtable->adr_method_at(i)) = new_ik->vtable()->method_at(i);
-    } else if (method_ik->dsu_has_been_deleted()) {
+      (*vtable->adr_method_at(i)) = new_method_holder->vtable()->method_at(i);
+    } else if (method_holder->dsu_has_been_deleted()) {
       // Here, the deleted super classes must already be set with a valid method.
-      (*vtable->adr_method_at(i)) = method_ik->vtable()->method_at(i);
+      (*vtable->adr_method_at(i)) = method_holder->vtable()->method_at(i);
     }
   }
 
   // TODO, we only treat remove deleted classes as redefine  the deleted class to its alive super classes.
+  // 3). Find the final new super
+
 }
+
+// a stale new class for a deleted class may not be stale.
+// 1) The super class is not stale, so we can just use the super class directly.
+InstanceKlass* DSUClass::allocate_stale_new_class_for_deleted_class(InstanceKlass* old_version, TRAPS) {
+  assert(!SafepointSynchronize::is_at_safepoint(), "should be allocated on-demand");
+  ResourceMark rm(THREAD);
+
+  InstanceKlass* stale_new_class = old_version->stale_new_class();
+
+  assert(stale_new_class != NULL, "should not be null in fact");
+
+  if (stale_new_class != NULL) {
+    return stale_new_class;
+  }
+
+  InstanceKlass* super_of_deleted_klass = old_version->superklass();
+  assert(super_of_deleted_klass != NULL, "sanity check");
+  while (super_of_deleted_klass != NULL
+      && super_of_deleted_klass->is_stale_class()
+      && super_of_deleted_klass->next_version() == NULL) {
+    assert(super_of_deleted_klass->dsu_has_been_deleted(), "must be deleted");
+    super_of_deleted_klass = super_of_deleted_klass->superklass();
+  }
+
+  stale_new_class = super_of_deleted_klass;
+
+  const int old_size_in_words = old_version->size_helper();
+  const int super_size_in_words = super_of_deleted_klass->size_helper();
+  const int size_delta_in_words = old_size_in_words - super_size_in_words;
+  if (size_delta_in_words > 0 && size_delta_in_words < (int) CollectedHeap::min_fill_size()) {
+    DSU_DEBUG(("A deleted class %s that cannot be shrunk to its super class.", old_version->name()->as_C_string()));
+    stale_new_class = InstanceKlass::clone_instance_klass(super_of_deleted_klass, CHECK_NULL);
+    stale_new_class->set_layout_helper(old_version->layout_helper());
+    stale_new_class->set_copy_to_size(old_version->layout_helper());
+  }
+
+  old_version->set_stale_new_class(stale_new_class);
+  return stale_new_class;
+}
+
 
 void DSUClass::relink_class(TRAPS) {
   HandleMark hm(THREAD);
@@ -6078,35 +6122,28 @@ bool Javelus::transform_object_common_no_lock(Handle stale_object, TRAPS){
           assert(stale_klass->dsu_has_been_deleted(), "this is an object of a deleted class");
           assert(!stale_object->mark()->is_mixed_object(), "not implemented yet");
 
-          InstanceKlass* super_of_deleted_klass = stale_klass->superklass();
-          assert(super_of_deleted_klass != NULL, "sanity check");
-          while (super_of_deleted_klass != NULL
-              && super_of_deleted_klass->is_stale_class()
-              && super_of_deleted_klass->next_version() == NULL) {
-            assert(super_of_deleted_klass->dsu_has_been_deleted(), "must be deleted");
-            super_of_deleted_klass = super_of_deleted_klass->superklass();
+          // we use the stale new class to store the super_of_deleted_klass
+          InstanceKlass* super_of_deleted_klass = stale_klass->stale_new_class();
+          if (super_of_deleted_klass == NULL) {
+            super_of_deleted_klass = DSUClass::allocate_stale_new_class_for_deleted_class(stale_klass, CHECK_false);
           }
-          assert(super_of_deleted_klass != NULL, "sanity check");
-          if (super_of_deleted_klass->is_stale_class()) {
-            super_of_deleted_klass = super_of_deleted_klass->next_version();
-          }
-          assert(super_of_deleted_klass != NULL, "sanity check");
-          assert(!super_of_deleted_klass->is_stale_class(), "sanity check");
-
-          guarantee(stale_klass->size_helper() >= super_of_deleted_klass->size_helper(), "not implemented");
 
           DSU_TRACE(0x00001000,("Transforming Object: [delete2super] [%s->%s] ["PTR_FORMAT"] [%d : %d]",
                 stale_klass->name()->as_C_string(), super_of_deleted_klass->name()->as_C_string(),
                 p2i(stale_object()), c_dead_rn, t_crn));
-          run_transformer(
-              stale_object,
-              stale_object,
-              stale_object,
-              stale_klass,
-              super_of_deleted_klass,
-              super_of_deleted_klass,
-              CHECK_false);
+
+          const int old_size_in_words = stale_klass->size_helper();
+          const int super_size_in_words = super_of_deleted_klass->size_helper();
+          const int size_delta_in_words = old_size_in_words - super_size_in_words;
+          stale_object->set_klass(super_of_deleted_klass);
+
+          if (size_delta_in_words > 0) {
+            guarantee(size_delta_in_words >= (int)CollectedHeap::min_fill_size(), "sanity check!");
+            Javelus::realloc_decreased_object(stale_object, old_size_in_words << LogBytesPerWord, super_size_in_words << LogBytesPerWord);
+          }
+
           transformed = true;
+          // the super_of_deleted_klass may be a stale class.
           continue;
         }
 

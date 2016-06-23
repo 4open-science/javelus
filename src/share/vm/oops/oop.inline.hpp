@@ -697,6 +697,9 @@ inline intptr_t oopDesc::identity_hash() {
   // Fast case; if the object is unlocked and the hash value is set, no locking is needed
   // Note: The mark must be read into local variable to avoid concurrent updates.
   markOop mrk = mark();
+  if (mrk->is_mixed_object()) {
+    mrk = ((oop)mrk->decode_phantom_object_pointer())->mark();
+  }
   if (mrk->is_unlocked() && !mrk->has_no_hash()) {
     return mrk->hash();
   } else if (mrk->is_marked()) {
