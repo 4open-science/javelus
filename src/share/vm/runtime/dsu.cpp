@@ -1244,7 +1244,8 @@ DSUError DSUClass::build_new_inplace_new_class_if_necessary(TRAPS) {
 
   assert(new_inplace_new_class->is_linked(), "mix class is linked ..");
 
-  new_inplace_new_class->set_init_state(InstanceKlass::fully_initialized);
+  // Trigger initialize in linkRuntime
+  // new_inplace_new_class->set_init_state(InstanceKlass::fully_initialized);
   new_inplace_new_class->set_copy_to_size(new_version->size_helper());
 
   set_new_inplace_new_class(new_inplace_new_class);
@@ -1447,8 +1448,6 @@ DSUError DSUClass::compare_and_normalize_class(InstanceKlass* old_version,
     // are the same.
     int n_fields = old_version->java_fields_count();
     if (n_fields != new_version->java_fields_count()) {
-      // TBD: Should we distinguish DSU_CLASS_SFIELD and DSU_CLASS_FIELD here??
-      //new_updating_type = Javelus::join(new_updating_type, DSU_CLASS_FIELD);
       new_updating_type = Javelus::join(new_updating_type, DSU_CLASS_BOTH);
     } else {
       for (int i = 0; i < n_fields; i++) {
@@ -1457,20 +1456,30 @@ DSUError DSUClass::compare_and_normalize_class(InstanceKlass* old_version,
         // access
         old_flags = old_field->access_flags();
         new_flags = new_field->access_flags();
+        // name and signature
+        Symbol* name_sym1 = old_field->name(old_version->constants());
+        Symbol* sig_sym1  = old_field->signature(old_version->constants());
+        Symbol* name_sym2 = new_field->name(new_version->constants());
+        Symbol* sig_sym2  = new_field->signature(new_version->constants());
+        DSU_DEBUG(("Check fields: old %s %s, new %s %s",
+                name_sym1->as_C_string(), sig_sym1->as_C_string(),
+                name_sym2->as_C_string(), sig_sym2->as_C_string()));
+        if (name_sym1 != name_sym2 || sig_sym1 != sig_sym2) {
+          DSU_DEBUG(("field name or sig mismatch: old %s %s, new %s %s",
+                name_sym1->as_C_string(), sig_sym1->as_C_string(),
+                name_sym2->as_C_string(), sig_sym2->as_C_string()));
+          new_updating_type = Javelus::join(new_updating_type, DSU_CLASS_BOTH);
+        }
         if ((old_flags ^ new_flags) & JVM_RECOGNIZED_FIELD_MODIFIERS) {
           // TBD: Should we distinguish DSU_CLASS_SFIELD and DSU_CLASS_FIELD here??
+          DSU_DEBUG(("field flags mismatch: field is %s %s, old flags %d, new flags %d",
+                name_sym1->as_C_string(), sig_sym1->as_C_string(), old_flags, new_flags));
           new_updating_type = Javelus::join(new_updating_type, DSU_CLASS_BOTH);
         }
         // offset
         if (old_field->offset() != new_field->offset()) {
-            new_updating_type = Javelus::join(new_updating_type, DSU_CLASS_BOTH);
-        }
-        // name and signature
-        Symbol* name_sym1 = old_field->name(old_version->constants());
-        Symbol* sig_sym1  = old_field->name(old_version->constants());
-        Symbol* name_sym2 = new_field->name(new_version->constants());
-        Symbol* sig_sym2  = new_field->name(new_version->constants());
-        if (name_sym1 != name_sym2 || sig_sym1 != sig_sym2) {
+          DSU_DEBUG(("field offset mismatch: field is %s %s, old %d, new %d",
+                name_sym1->as_C_string(), sig_sym1->as_C_string(), old_field->offset(), new_field->offset()));
           new_updating_type = Javelus::join(new_updating_type, DSU_CLASS_BOTH);
         }
       }
@@ -1717,14 +1726,13 @@ void DSUClass::swap_class(TRAPS) {
   InstanceKlass* old_version = this->old_version_class();
 
   DSU_TRACE(0x000000400,
-    ("Swap single class %s, change type is %s",old_version->name()->as_C_string(),
+    ("Swap single class %s, change type is %s", old_version->name()->as_C_string(),
      Javelus::class_updating_type_name(updating_type))
     );
 
   InstanceKlass* new_version = this->new_version_class();
 
   assert(new_version != NULL, "sanity check");
-
 
   // We can update here before swap,
   // Now, the new_version is totally new.
@@ -2008,11 +2016,13 @@ InstanceKlass* DSUClass::allocate_stale_new_class_for_deleted_class(InstanceKlas
 
   InstanceKlass* stale_new_class = old_version->stale_new_class();
 
-  assert(stale_new_class != NULL, "should not be null in fact");
+  assert(stale_new_class == NULL, "should be null in fact");
 
   if (stale_new_class != NULL) {
     return stale_new_class;
   }
+
+  DSU_DEBUG(("Allocate stale new class for a deleted class %s", old_version->name()->as_C_string()));
 
   InstanceKlass* super_of_deleted_klass = old_version->superklass();
   assert(super_of_deleted_klass != NULL, "sanity check");
@@ -2549,6 +2559,9 @@ void DSUClass::post_fix_stale_new_class(InstanceKlass* old_version,
   stale_new_class->set_secondary_super_cache(NULL);
   stale_new_class->set_super_check_offset(in_bytes(Klass::primary_supers_offset()));
   stale_new_class->initialize_supers(new_version, CHECK);
+
+  // Blindly set stale_new_class as fully_initialized
+  stale_new_class->set_init_state(InstanceKlass::fully_initialized);
 }
 
 void DSUClass::post_fix_vtable_and_itable(InstanceKlass* old_version,
@@ -2796,7 +2809,6 @@ void DSU::check_and_append_relink_class(Klass* k, TRAPS) {
                   || m->method_holder()->dsu_will_be_redefined()
                   || m->method_holder()->dsu_is_affected()) {
                 should_relink = true;
-                assert(false, "shit happens");
                 break;
               }
             }
@@ -3024,10 +3036,9 @@ bool DSU::is_changed_reflect_field(oop reflection) {
   if (ik->dsu_will_be_redefined()) {
     return true;
   } else if (ik->dsu_will_be_deleted()) {
-    // ShouldNotReachHere();
     return false;
   } else if (ik->dsu_will_be_swapped()) {
-    return true;
+    return false;
   }
   return false;
 }
@@ -3040,10 +3051,9 @@ bool DSU::is_changed_reflect_method(oop reflection) {
   if (ik->dsu_will_be_redefined()) {
     return true;
   } else if (ik->dsu_will_be_deleted()) {
-    // ShouldNotReachHere();
     return false;
   } else if (ik->dsu_will_be_swapped()) {
-    return true;
+    return false;
   }
   return false;
 }
@@ -3056,10 +3066,9 @@ bool DSU::is_changed_reflect_constructor(oop reflection) {
   if (ik->dsu_will_be_redefined()) {
     return true;
   } else if (ik->dsu_will_be_deleted()) {
-    // ShouldNotReachHere();
     return false;
   } else if (ik->dsu_will_be_swapped()) {
-    return true;
+    return false;
   }
   return false;
 }
@@ -3119,6 +3128,19 @@ void DSU::update_changed_reflect_method(oop old_reflection) {
   int slot = java_lang_reflect_Method::slot(old_reflection);
   Method* old_method = InstanceKlass::cast(klass)->method_with_idnum(slot);
   oop new_reflection = dsu_class->find_resolved_reflection(old_method->name(), old_method->signature());
+
+  DSU_DEBUG(("Update reflect method: %s, old reflection="PTR_FORMAT", new reflection="PTR_FORMAT,
+        old_method->name_and_sig_as_C_string(), p2i(old_reflection), p2i(new_reflection)));
+
+#ifdef ASSERT
+  if (new_reflection != NULL) {
+    int new_slot = java_lang_reflect_Method::slot(new_reflection);
+    InstanceKlass* new_version = dsu_class->new_version_class();
+    Method* new_method = new_version->method_with_idnum(new_slot);
+    assert(old_method->name() == new_method->name(), "sanity");
+    assert(old_method->signature() == new_method->signature(), "sanity");
+  }
+#endif
   if (old_reflection == new_reflection) {
     ShouldNotReachHere();
     return;
@@ -4507,7 +4529,18 @@ void DSUClass::collect_affected_types(InstanceKlass* old_version, InstanceKlass*
         } else { // only in the new hierarchy
           new_index++;
           assert(!new_supertype->is_stale_class(), "sanity check");
-          add_super_class_of_stale_class(new_supertype);
+          bool is_updated_new = false;
+          for (int i = 0; i < old_length; i++) {
+            InstanceKlass* temp = supertypes_of_old_version->at(i);
+            assert(temp != new_supertype, "must not be equal");
+            if (temp->name() == new_supertype->name()) {
+              is_updated_new = true;
+              break;
+            }
+          }
+          if (!is_updated_new) {
+            add_super_class_of_stale_class(new_supertype);
+          }
           continue;
         }
       }
@@ -4515,7 +4548,18 @@ void DSUClass::collect_affected_types(InstanceKlass* old_version, InstanceKlass*
       if (ret < 0) {
         // old super is only in the old hierarchy
         if (!old_supertype->is_stale_class()) {
-          add_type_narrowing_relevant_class(old_supertype);
+          bool is_to_be_updated_old = false;
+          for (int i = 0; i < new_length; i++) {
+            InstanceKlass* temp = supertypes_of_new_version->at(i);
+            assert(temp != old_supertype, "must not be equal");
+            if (temp->name() == old_supertype->name()) {
+              is_to_be_updated_old = true;
+              break;
+            }
+          }
+          if (!is_to_be_updated_old) {
+            add_type_narrowing_relevant_class(old_supertype);
+          }
         }
       }
 

@@ -604,6 +604,13 @@ void InstanceKlass::eager_initialize_impl(instanceKlassHandle this_oop) {
 // process. The step comments refers to the procedure described in that section.
 // Note: implementation moved to static method to expose the this pointer.
 void InstanceKlass::initialize(TRAPS) {
+  if (this->is_inplace_new_class()) {
+    HandleMark hm(THREAD);
+    instanceKlassHandle that_oop(THREAD, this->next_version());
+    that_oop->initialize(CHECK);
+    this->set_init_state(fully_initialized);
+    return;
+  }
   if (this->should_be_initialized()) {
     HandleMark hm(THREAD);
     instanceKlassHandle this_oop(THREAD, this);
