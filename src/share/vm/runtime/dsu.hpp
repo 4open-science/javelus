@@ -409,6 +409,10 @@ public:
   Method* find_new_matched_method(Symbol* name, Symbol* signature);
   oop find_resolved_reflection(Symbol* old_name, Symbol* old_signature);
 
+  bool has_resolved_reflection() const {
+    return _resolved_reflections != NULL && _resolved_reflections->length() > 0;
+  }
+
   // set flags for fields;
   void compute_and_set_fields(InstanceKlass* old_version,
     InstanceKlass* new_version, TRAPS);
@@ -834,7 +838,7 @@ public:
   static bool is_changed_reflect_field(oop field);
   static bool is_changed_reflect_method(oop method);
   static bool is_changed_reflect_constructor(oop constructor);
-  static void update_changed_reflection(TRAPS);
+  void update_changed_reflection(TRAPS);
 
   static void update_changed_reflect_field(oop old_reflection);
   static void update_changed_reflect_method(oop old_reflection);

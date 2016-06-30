@@ -197,17 +197,23 @@ DSUError DSU::update(TRAPS) {
   {
     // TODO class updating may swap contents of java.lang.Class
     // we have to perform the update ahead of that.
-    //TraceTime t("Update changed reflection.");
+    // TraceTime t("Update changed reflection.");
     update_changed_reflection(CHECK_(DSU_ERROR_TO_BE_ADDED));
   }
   // 2.2). update each class contained in this DSU
-  update_ordered_classes(CHECK_(DSU_ERROR_UPDATE_DSUCLASSLOADER));
+  {
+    // TraceTime t("Update changed classes.");
+    update_ordered_classes(CHECK_(DSU_ERROR_UPDATE_DSUCLASSLOADER));
+  }
 
-  relink_collected_classes(CHECK_(DSU_ERROR_COLLECT_CLASSES_TO_RELINK));
+  {
+    // TraceTime t("Relink classes.");
+    relink_collected_classes(CHECK_(DSU_ERROR_COLLECT_CLASSES_TO_RELINK));
+  }
 
   // 2.3). update bytecode unchanged methods
   {
-    //TraceTime t("Repair application threads");
+    // TraceTime t("Repair application threads");
     Javelus::repair_application_threads();
   }
 
@@ -218,7 +224,7 @@ DSUError DSU::update(TRAPS) {
 
     // Record DSU Request pausing time without collect objects.
     DSU_TIMER_STOP(dsu_timer);
-    DSU_INFO(("DSU request update code time: %3.7f (s).",dsu_timer.seconds()));
+    DSU_INFO(("DSU request update code time: %3.7f (s).", dsu_timer.seconds()));
     DSU_TIMER_START(dsu_timer);
 
     GrowableArray<jobject> * results = new GrowableArray<jobject>(1000);
@@ -258,7 +264,7 @@ DSUError DSU::update(TRAPS) {
 
   // Record DSU Request pausing time without collect objects.
   DSU_TIMER_STOP(dsu_timer);
-  DSU_INFO(("DSU request pause time: %3.7f (s).",dsu_timer.seconds()));
+  DSU_INFO(("DSU request pausing time: %3.7f (s).", dsu_timer.seconds()));
   if (DSU_TRACE_ENABLED(0x00000001)) {
       time_t tloc;
       time(&tloc);
@@ -950,7 +956,7 @@ DSUError DSUClass::prepare(TRAPS) {
   // a deleted class or a modified class has not been loaded
   if (ret == DSU_ERROR_OLD_CLASS_NOT_LOADED && IgnoreUnloadedOldClass) {
     ResourceMark rm(THREAD);
-    DSU_WARN(("A deleted class [%s] cannot be resolved.", this->name()->as_C_string()));
+    DSU_WARN(("An old class [%s] cannot be resolved, ignore it.", this->name()->as_C_string()));
     return DSU_ERROR_NONE;
   }
 
@@ -2103,23 +2109,23 @@ void DSUClass::relink_class(TRAPS) {
     MethodData* md = method->method_data();
     if (md != NULL) {
       for (ProfileData* data = md->first_data();
-        md->is_valid(data);
-        data = md->next_data(data)) {
-          if (data->is_ReceiverTypeData()) {
-            ReceiverTypeData * rtd = (ReceiverTypeData*)data;
-            for (uint row = 0; row < rtd->row_limit(); row++) {
-              Klass* recv = rtd->receiver(row);
-              if (recv != NULL ) {
-                if (recv->is_stale_class()) {
-                  Klass* next = InstanceKlass::cast(recv)->next_version();
-                  // next may be null and next version
-                  // TODO if we allow concurrent update, here next should the latest one?
-                  assert(next != NULL,"next version cannot be null");
-                  rtd->set_receiver(row,next);
-                }
+          md->is_valid(data);
+          data = md->next_data(data)) {
+        if (data->is_ReceiverTypeData()) {
+          ReceiverTypeData * rtd = (ReceiverTypeData*)data;
+          for (uint row = 0; row < rtd->row_limit(); row++) {
+            Klass* recv = rtd->receiver(row);
+            if (recv != NULL ) {
+              if (recv->is_stale_class()) {
+                Klass* next = InstanceKlass::cast(recv)->next_version();
+                // next may be null and next version
+                // TODO if we allow concurrent update, here next should the latest one?
+                assert(next != NULL,"next version cannot be null");
+                rtd->set_receiver(row,next);
               }
             }
           }
+        }
       }
     }
   }
@@ -2227,7 +2233,7 @@ void DSUClass::redefine_class(TRAPS) {
     klassVtable * new_vtable = new_version->vtable();
     const int new_vtable_length = new_vtable->length();
     bool stale = false;
-    for(int i=0; i<new_vtable_length; i++) {
+    for (int i=0; i<new_vtable_length; i++) {
       Method* method = new_vtable->method_at(i);
       if (method->method_holder()->is_stale_class()) {
         stale = true;
@@ -2565,8 +2571,7 @@ void DSUClass::post_fix_stale_new_class(InstanceKlass* old_version,
 }
 
 void DSUClass::post_fix_vtable_and_itable(InstanceKlass* old_version,
-    InstanceKlass* new_version,
-    TRAPS) {
+    InstanceKlass* new_version, TRAPS) {
   {
     klassVtable* old_vt = old_version->vtable();
     klassVtable* new_vt = new_version->vtable();
@@ -3314,8 +3319,16 @@ void DSU::update_changed_reflect_constructor(oop old_reflection, oop new_reflect
 
 // XXX This should be called before updating class;
 void DSU::update_changed_reflection(TRAPS) {
+  bool has_changed_reflection = false;
+  for (int i = 0; i < _classes_in_order->length(); i++) {
+    DSUClass* dsu_class = _classes_in_order->at(i);
+    if (dsu_class->prepared() && dsu_class->has_resolved_reflection()) {
+      has_changed_reflection = true;
+      break;
+    }
+  }
   // Heap scan to update all copied reflection instance.
-  {
+  if (has_changed_reflection) {
     HandleMark hm(THREAD);
 
     // Ensure that the heap is parsable
